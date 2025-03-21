@@ -1,0 +1,17 @@
+name: gait-closed-loop-id
+channels:
+  - conda-forge
+dependencies:
+  - ipython
+  - matplotlib
+  - numpy
+  - opty
+  - pip
+  - pydy
+  - python
+  - pyyaml
+  - scipy
+  - setuptools
+  - symmeplot
+  - sympy
+  - yeadon
