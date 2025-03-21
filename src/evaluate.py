@@ -15,7 +15,7 @@ from pygait2d import derive, simulate
 
 (mass_matrix, forcing_vector, kane, constants, coordinates, speeds, specified,
  visualization_frames, ground, origin, segments) = \
-    derive.derive_equations_of_motion()
+    derive.derive_equations_of_motion(gait_cycle_control=True)
 
 constant_values = simulate.load_constants(
     constants, os.path.join(os.path.dirname(__file__), '..',
