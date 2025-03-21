@@ -12,6 +12,10 @@ Install the conda environment for the gait closed loop id project::
    conda env create -f gait-closed-loop-id-env.yml
    conda activate gait-closed-loop-id
 
+You will also need a working C compiler on your operating system. For Windows,
+you'll need the right compiler for the Python version you are using. See
+https://wiki.python.org/moin/WindowsCompilers for more info.
+
 Install an editable development version of gait2d::
 
    cd ../gait2d
