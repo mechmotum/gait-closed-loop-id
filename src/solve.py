@@ -62,10 +62,11 @@ import sympy as sm
 # Pick an average ambulation speed and the number of discretization nodes for
 # the half period and define the time step as a variable :math:`h`.
 
-speed = 3.0  # m/s
+speed = 1.2  # m/s
 num_nodes = 40
 h = sm.symbols('h', real=True, positive=True)
 duration = (num_nodes - 1)*h
+add_moon_optimization = False
 
 # %%
 # Derive the equations of motion using gait2d.
@@ -234,16 +235,14 @@ fname = f'human_gait_{num_nodes}_nodes_solution.csv'
 if os.path.exists(fname):
     solution = np.loadtxt(fname)
 else:
-    # choose one initial guess, comment others
-    initial_guess = prob.lower_bound + (
-        prob.upper_bound -
-        prob.lower_bound)*np.random.random_sample(prob.num_free)
-    initial_guess = 0.01*np.ones(prob.num_free)
-    initial_guess = np.zeros(prob.num_free)
+    # reproducible random initial guess
+    np.random.seed(0)
+    initial_guess = 0.5 * (prob.lower_bound + prob.upper_bound) + 0.01 * (
+        prob.upper_bound - prob.lower_bound) * np.random.random_sample(prob.num_free)
     solution, info = prob.solve(initial_guess)
     if info['status'] in (0, 1):
         np.savetxt(f'human_gait_{num_nodes}_nodes_solution.csv', solution,
-                   fmt='%.2f')
+                   fmt='%.5f')
 
 # %%
 # Use symmeplot to make an animation of the motion.
@@ -369,23 +368,24 @@ def animate():
 
 animation = animate()
 
+plt.show()
+
 # %%
 # Now see what the solution looks like in the Moon's gravitational field.
-g = constants[0]
-prob.collocator.known_parameter_map[g] = 1.625  # m/s**2
-pprint.pprint(prob.collocator.known_parameter_map)
-
-# %%
-# Use earth's solution as initial guess.
-solution, info = prob.solve(solution)
-
-# %%
-# Animate the second solution.
-xs, rs, _, h_val = prob.parse_free(solution)
-
-animation = animate()
-
-plt.show()
+if add_moon_optimization:
+    g = constants[0]
+    prob.collocator.known_parameter_map[g] = 1.625  # m/s**
+    # %%
+    # Use earth's solution as initial guess.
+    solution, info = prob.solve(solution)
+    
+    # %%
+    # Animate the second solution.
+    xs, rs, _, h_val = prob.parse_free(solution)
+    
+    animation = animate()
+    
+    plt.show()
 
 # %%
 # Footnotes
