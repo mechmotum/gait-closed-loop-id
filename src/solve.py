@@ -119,7 +119,6 @@ Fax, Fay, Ta, Tb, Tc, Td, Te, Tf, Tg = specified
 par_map = simulate.load_constants(constants,
                                   os.path.join(os.path.dirname(__file__), '..',
                                                'data/example_constants.yml'))
-pprint.pprint(par_map)
 
 # %%
 # gait2d provides "hand of god" inputs to manipulate the trunk for some
