@@ -2,6 +2,7 @@ name: gait-closed-loop-id
 channels:
   - conda-forge
 dependencies:
+  - ffmpeg
   - ipython
   - matplotlib
   - numpy
