@@ -13,6 +13,7 @@ dependencies:
   - pyyaml
   - scipy
   - setuptools
+  - spyder-kernels
   - symmeplot
   - sympy
   - yeadon

@@ -6,6 +6,11 @@ Clone the two repositories where the developement is done::
    git clone git@github.com:mechmotum/gait-closed-loop-id.git
    git clone git@github.com:csu-hmc/gait2d.git
 
+If using Spyder, install it along with ``spyder-kernels`` in your base
+environment::
+
+   conda install spyder spyder-kernels
+
 Install the conda environment for the gait closed loop id project::
 
    cd gait-closed-loop-id
