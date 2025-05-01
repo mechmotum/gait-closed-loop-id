@@ -45,14 +45,11 @@ average speed over half a period.
 Import all necessary modules, functions, and classes:
 """
 import os
-import pprint
-from pkg_resources import parse_version
 from opty import Problem
 from opty.utils import f_minus_ma
 from pygait2d import simulate
 from pygait2d.segment import time_symbol, contact_force
 from symmeplot.matplotlib import Scene3D
-import matplotlib
 import matplotlib.pyplot as plt
 from matplotlib.animation import FuncAnimation
 import numpy as np
@@ -64,7 +61,7 @@ from derive import derive_equations_of_motion
 # Pick an average ambulation speed and the number of discretization nodes for
 # the half period and define the time step as a variable :math:`h`.
 
-speed = 1.2  # m/s
+speed = 0.4  # m/s
 num_nodes = 40
 h = sm.symbols('h', real=True, positive=True)
 duration = (num_nodes - 1)*h
@@ -236,15 +233,15 @@ fname = f'human_gait_{num_nodes}_nodes_solution.csv'
 if os.path.exists(fname):
     print('Loading solution stored in {} as the initial guess.'.format(fname),
           'Delete the file to use a random guess')
-    solution = np.loadtxt(fname)
+    initial_guess = np.loadtxt(fname)
 else:
     initial_guess = (0.5*(prob.lower_bound + prob.upper_bound) +
                      0.01*(prob.upper_bound - prob.lower_bound)*
                      np.random.random_sample(prob.num_free))
-    solution, info = prob.solve(initial_guess)
-    if info['status'] == 1:
-        np.savetxt(f'human_gait_{num_nodes}_nodes_solution.csv', solution,
-                   fmt='%.5f')
+solution, info = prob.solve(initial_guess)
+if info['status'] == 1:
+    np.savetxt(f'human_gait_{num_nodes}_nodes_solution.csv', solution,
+               fmt='%.5f')
 
 # %%
 # Use symmeplot to make an animation of the motion.
@@ -283,14 +280,9 @@ def animate():
     ], color="k")
 
     # creates a moving ground (many points to deal with matplotlib limitation)
-    if parse_version(matplotlib.__version__) >= parse_version('3.10'):
-        scene.add_line([origin.locatenew('gl', s*ground.x) for s in
-                        np.linspace(-2.0, 2.0)], linestyle='--',
-                       color='tab:green', axlim_clip=True)
-    else:
-        scene.add_line([origin.locatenew('gl', s*ground.x) for s in
-                        np.linspace(-2.0, 2.0)], linestyle='--',
-                       color='tab:green')
+    scene.add_line([origin.locatenew('gl', s*ground.x) for s in
+                    np.linspace(-2.0, 2.0)], linestyle='--', color='tab:green',
+                   axlim_clip=True)
 
     # adds CoM and unit vectors for each body segment
     for seg in segments:
