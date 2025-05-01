@@ -234,10 +234,13 @@ prob = Problem(
 # to try one of the suggested initial guesses.
 fname = f'human_gait_{num_nodes}_nodes_solution.csv'
 if os.path.exists(fname):
+    print('Loading solution stored in {} as the initial guess.'.format(fname),
+          'Delete the file to use a random guess')
     solution = np.loadtxt(fname)
 else:
-    initial_guess = 0.5*(prob.lower_bound + prob.upper_bound) + 0.01*(
-        prob.upper_bound - prob.lower_bound)*np.random.random_sample(prob.num_free)
+    initial_guess = (0.5*(prob.lower_bound + prob.upper_bound) +
+                     0.01*(prob.upper_bound - prob.lower_bound)*
+                     np.random.random_sample(prob.num_free))
     solution, info = prob.solve(initial_guess)
     if info['status'] == 1:
         np.savetxt(f'human_gait_{num_nodes}_nodes_solution.csv', solution,
