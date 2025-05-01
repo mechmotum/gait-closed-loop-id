@@ -237,18 +237,18 @@ def derive_equations_of_motion(gait_cycle_control=False):
         for ri in specified:
             row = []
             for xi in coordinates + speeds:
-                row.append(sy.Function('k_{}_{}'.format(ri.name, xi.name),
+                row.append(sm.Function('k_{}_{}'.format(ri.name, xi.name),
                                        real=True)(time_symbol))
             K.append(row)
-        K = sy.Matrix(K)
+        K = sm.Matrix(K)
 
         xc = []
         for xi in coordinates + speeds:
-            xc.append(sy.Function('{}_c'.format(xi.name),
+            xc.append(sm.Function('{}_c'.format(xi.name),
                                   real=True)(time_symbol))
-        r = sy.Matrix(specified)
-        xc = sy.Matrix(xc)
-        x = sy.Matrix(coordinates + speeds)
+        r = sm.Matrix(specified)
+        xc = sm.Matrix(xc)
+        x = sm.Matrix(coordinates + speeds)
 
         uc = r + K@(xc - x)
 
@@ -258,5 +258,6 @@ def derive_equations_of_motion(gait_cycle_control=False):
 
         specified += K[:]
         specified += xc[:]
+
     return (mass_matrix, forcing_vector, kane, constants, coordinates, speeds,
             specified, visualization_frames, ground, origin, segments)
