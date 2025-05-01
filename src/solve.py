@@ -68,7 +68,6 @@ speed = 1.2  # m/s
 num_nodes = 40
 h = sm.symbols('h', real=True, positive=True)
 duration = (num_nodes - 1)*h
-add_moon_optimization = False
 
 # %%
 # Derive the equations of motion using gait2d.
@@ -237,12 +236,10 @@ fname = f'human_gait_{num_nodes}_nodes_solution.csv'
 if os.path.exists(fname):
     solution = np.loadtxt(fname)
 else:
-    # reproducible random initial guess
-    np.random.seed(0)
-    initial_guess = 0.5 * (prob.lower_bound + prob.upper_bound) + 0.01 * (
-        prob.upper_bound - prob.lower_bound) * np.random.random_sample(prob.num_free)
+    initial_guess = 0.5*(prob.lower_bound + prob.upper_bound) + 0.01*(
+        prob.upper_bound - prob.lower_bound)*np.random.random_sample(prob.num_free)
     solution, info = prob.solve(initial_guess)
-    if info['status'] in (0, 1):
+    if info['status'] == 1:
         np.savetxt(f'human_gait_{num_nodes}_nodes_solution.csv', solution,
                    fmt='%.5f')
 
@@ -373,23 +370,6 @@ animation = animate()
 animation.save('human_gait.gif', fps=int(1.0/h_val))
 
 plt.show()
-
-# %%
-# Now see what the solution looks like in the Moon's gravitational field.
-if add_moon_optimization:
-    g = constants[0]
-    prob.collocator.known_parameter_map[g] = 1.625  # m/s**
-    # %%
-    # Use earth's solution as initial guess.
-    solution, info = prob.solve(solution)
-
-    # %%
-    # Animate the second solution.
-    xs, rs, _, h_val = prob.parse_free(solution)
-
-    animation = animate()
-
-    plt.show()
 
 # %%
 # Footnotes
