@@ -49,7 +49,7 @@ import pprint
 from pkg_resources import parse_version
 from opty import Problem
 from opty.utils import f_minus_ma
-from pygait2d import derive, simulate
+from pygait2d import simulate
 from pygait2d.segment import time_symbol, contact_force
 from symmeplot.matplotlib import Scene3D
 import matplotlib
@@ -57,6 +57,8 @@ import matplotlib.pyplot as plt
 from matplotlib.animation import FuncAnimation
 import numpy as np
 import sympy as sm
+
+from derive import derive_equations_of_motion
 
 # %%
 # Pick an average ambulation speed and the number of discretization nodes for
@@ -70,7 +72,7 @@ add_moon_optimization = False
 
 # %%
 # Derive the equations of motion using gait2d.
-symbolics = derive.derive_equations_of_motion()
+symbolics = derive_equations_of_motion()
 
 mass_matrix = symbolics[0]
 forcing_vector = symbolics[1]
@@ -368,6 +370,8 @@ def animate():
 
 animation = animate()
 
+animation.save('human_gait.gif', fps=int(1.0/h_val))
+
 plt.show()
 
 # %%
@@ -378,13 +382,13 @@ if add_moon_optimization:
     # %%
     # Use earth's solution as initial guess.
     solution, info = prob.solve(solution)
-    
+
     # %%
     # Animate the second solution.
     xs, rs, _, h_val = prob.parse_free(solution)
-    
+
     animation = animate()
-    
+
     plt.show()
 
 # %%
