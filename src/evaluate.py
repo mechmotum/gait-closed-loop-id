@@ -11,7 +11,9 @@ from scipy.integrate import odeint
 from pydy.codegen.ode_function_generators import generate_ode_function
 from pydy.viz import Scene
 
-from pygait2d import derive, simulate
+from pygait2d import simulate
+
+import derive
 
 (mass_matrix, forcing_vector, kane, constants, coordinates, speeds, specified,
  visualization_frames, ground, origin, segments) = \
