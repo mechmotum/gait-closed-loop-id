@@ -172,11 +172,12 @@ def derive_equations_of_motion(gait_cycle_control=False):
                                         segment.gravity))
 
         # joint torques
-        external_forces_torques.append((segment.reference_frame,
-                                        segment.torque))
-        external_forces_torques.append((segment.parent_reference_frame,
-                                        -segment.torque))
-        specified.append(segment.joint_torque_symbol)
+        if label != 'A':
+            external_forces_torques.append((segment.reference_frame,
+                                            segment.torque))
+            external_forces_torques.append((segment.parent_reference_frame,
+                                            -segment.torque))
+            specified.append(segment.joint_torque_symbol)
 
         # contact force
         if label == 'D' or label == 'G':  # foot

@@ -7,10 +7,9 @@ the model "falls down"."""
 import os
 
 import numpy as np
+import matplotlib.pyplot as plt
 from scipy.integrate import odeint
 from pydy.codegen.ode_function_generators import generate_ode_function
-from pydy.viz import Scene
-
 from pygait2d import simulate
 
 import derive
@@ -45,8 +44,12 @@ initial_conditions[3] = np.deg2rad(5.0)  # right hip angle
 initial_conditions[6] = -np.deg2rad(5.0)  # left hip angle
 trajectories = odeint(rhs, initial_conditions, time_vector, args=args)
 
-scene = Scene(ground, origin, *visualization_frames)
-scene.states_symbols = coordinates + speeds
-scene.constants = constant_values
-scene.states_trajectories = trajectories
-scene.times = time_vector
+# plot the vertical position of the trunk
+plt.plot(time_vector, trajectories[:,0], label='x')
+plt.plot(time_vector, trajectories[:,1], label='y')
+plt.xlabel('time (s)')
+plt.ylabel('position (m)')
+plt.legend()
+plt.title('hip position')
+plt.show()
+pause
