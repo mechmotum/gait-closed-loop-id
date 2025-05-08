@@ -10,7 +10,7 @@ from pygait2d.segment import (BodySegment, TrunkSegment, FootSegment,
 me.dynamicsymbols._t = time_symbol
 
 
-def contact_force(point, ground, origin):
+def contact_force(point, ground, origin, v_belt):
     """Returns a contact force vector acting on the given point made of
     friction along the contact surface and elastic force in the vertical
     direction.
@@ -57,8 +57,10 @@ def contact_force(point, ground, origin):
     vertical_force = (contact_stiffness * penetration ** 3 - y_location) * \
         (1 - contact_damping * velocity.dot(ground.y))
 
+    # friction force depends on velocity of the contact point relative
+    # to the treadmill belt (which is moving backwards)
     friction = -contact_friction_coefficient * vertical_force * \
-        ((2 / (1 + sm.exp(-velocity.dot(ground.x) /
+        ((2 / (1 + sm.exp( (-v_belt-velocity.dot(ground.x)) /
                           friction_scaling_factor))) - 1)
 
     return friction * ground.x + vertical_force * ground.y
@@ -114,6 +116,9 @@ def derive_equations_of_motion(gait_cycle_control=False):
                             'F': (BodySegment, 'Left Shank', 'Left Ankle'),
                             'G': (FootSegment, 'Left Foot', 'Left Heel')}
 
+    # define a symbol for the belt velocity
+    v = time_varying('v')
+    
     ground = me.ReferenceFrame('N')
     origin = me.Point('O')
     origin.set_vel(ground, 0)
@@ -122,7 +127,7 @@ def derive_equations_of_motion(gait_cycle_control=False):
     constants = []
     coordinates = []
     speeds = []
-    specified = []
+    specified = [v]
     kinematic_equations = []
     external_forces_torques = []
     bodies = []
@@ -177,22 +182,15 @@ def derive_equations_of_motion(gait_cycle_control=False):
         if label == 'D' or label == 'G':  # foot
             external_forces_torques.append((segment.heel,
                                             contact_force(segment.heel,
-                                                          ground, origin)))
+                                                          ground, origin, v)))
             external_forces_torques.append((segment.toe,
                                             contact_force(segment.toe,
-                                                          ground, origin)))
+                                                          ground, origin, v)))
 
         # bodies
         bodies.append(segment.rigid_body)
 
         visualization_frames += segment.visualization_frames()
-
-    # add hand of god
-    # TODO : move this into segment.py
-    trunk_force_x, trunk_force_y = time_varying('Fax, Fay')
-    specified = [trunk_force_x, trunk_force_y] + specified
-    external_forces_torques.append((segments[0].mass_center, trunk_force_x *
-                                    ground.x + trunk_force_y * ground.y))
 
     # add contact model constants
     # TODO : these should be grabbed from the segments, not recreated.
