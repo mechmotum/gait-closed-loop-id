@@ -7,6 +7,7 @@ the model "falls down"."""
 import os
 
 import numpy as np
+import sympy as sm
 import matplotlib.pyplot as plt
 from scipy.integrate import odeint
 from pydy.codegen.ode_function_generators import generate_ode_function
@@ -14,9 +15,18 @@ from pygait2d import simulate
 
 import derive
 
-(mass_matrix, forcing_vector, kane, constants, coordinates, speeds, specified,
- visualization_frames, ground, origin, segments) = \
-    derive.derive_equations_of_motion(gait_cycle_control=True)
+
+if os.path.exists('eom_cache.txt'):
+    with open('eom_cache.txt', 'r') as f:
+        (mass_matrix, forcing_vector, constants, coordinates, speeds,
+         specified) = sm.sympify(f.read())
+else:
+    (mass_matrix, forcing_vector, _, constants, coordinates, speeds, specified,
+     _, _, _, _) = derive.derive_equations_of_motion(gait_cycle_control=True)
+    exprs = [mass_matrix, forcing_vector, constants, coordinates, speeds,
+             specified]
+    with open('eom_cache.txt', 'w') as f:
+        f.write(str(sm.srepr(exprs)))
 
 constant_values = simulate.load_constants(
     constants, os.path.join(os.path.dirname(__file__), '..',
@@ -34,7 +44,7 @@ rhs = generate_ode_function(
     # specifieds_arg_type='function',  # this did not work!! parameters ended up in t
 )
 
-# TODO: read a time series of belt speeds from file, and do a linear 
+# TODO: read a time series of belt speeds from file, and do a linear
 # interpolation in the r_function
 
 # define a function g(x,t) for all specified input signals r:
