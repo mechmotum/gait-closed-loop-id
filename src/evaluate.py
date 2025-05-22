@@ -5,7 +5,6 @@
 the model "falls down"."""
 
 import os
-
 import numpy as np
 import sympy as sm
 import matplotlib.pyplot as plt
@@ -15,24 +14,14 @@ from pygait2d import simulate
 
 import derive
 
-
-if os.path.exists('eom_cache.txt'):  # delete eom_cache.txt to regenerate
-    with open('eom_cache.txt', 'r') as f:
-        (mass_matrix, forcing_vector, constants, coordinates, speeds,
-         specified) = sm.sympify(f.read())
-    print('Equations of motion loaded from cache.')
-else:
-    (mass_matrix, forcing_vector, _, constants, coordinates, speeds, specified,
+(mass_matrix, forcing_vector, _, constants, coordinates, speeds, specified,
      _, _, _, _) = derive.derive_equations_of_motion(gait_cycle_control=True)
-    exprs = [mass_matrix, forcing_vector, constants, coordinates, speeds,
-             specified]
-    with open('eom_cache.txt', 'w') as f:
-        f.write(str(sm.srepr(exprs)))
 
 constant_values = simulate.load_constants(
     constants, os.path.join(os.path.dirname(__file__), '..',
                             'data/example_constants.yml'))
 
+print('Generating ODE function.')
 rhs = generate_ode_function(
     forcing_vector,
     coordinates,
@@ -65,10 +54,11 @@ initial_conditions = np.zeros(len(coordinates + speeds))
 initial_conditions[1] = 1.0  # set hip above ground
 initial_conditions[3] = np.deg2rad(5.0)  # right hip angle
 initial_conditions[6] = -np.deg2rad(5.0)  # left hip angle
-print('Simulating...')
+print('Simulating.')
 trajectories = odeint(rhs, initial_conditions, time_vector, args=(r_function, p))
 
 # plot the position of the trunk
+print('Plotting.')
 plt.plot(time_vector, trajectories[:,0], label='x')
 plt.plot(time_vector, trajectories[:,1], label='y')
 plt.xlabel('time (s)')
@@ -76,3 +66,4 @@ plt.ylabel('position (m)')
 plt.legend()
 plt.title('hip position')
 plt.show()
+

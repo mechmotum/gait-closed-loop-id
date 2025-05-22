@@ -1,70 +1,37 @@
-r"""
-Human Gait
-==========
+# solve.py
 
-.. note::
+# Generates a half cycle of normal gait, by minimizing a combination
+# of tracking and error.
 
-    pygait2d and symmeplot and their dependencies must be installed first to
-    run this example. Note that pygait2d has not been released to PyPi or Conda
-    Forge::
+# The resulting state trajectory will be used as a reference trajectory
+# for a known feedback controller to generate synthetic data for
+# testing our controller identification method.
 
-        conda install cython pip pydy pyyaml setuptools symmeplot sympy
-        python -m pip install --no-deps --no-build-isolation git+https://github.com/csu-hmc/gait2d
-
-Objectives
-----------
-
-This example highlights three points of interest compared to the others:
-
-- Instance constraints are used to make the start state the same as the end
-  state except for forward translation to solve for a cyclic trajectory, for
-  example :math:`q_b(t_0) = q_e(t_f)`.
-- The average speed is constrained in this variable time step solution by
-  introducing an additional differential equation that, when integrated, gives
-  the duration at :math:`\Delta_t(t)`, which can be used to calculate distance
-  traveled with :math:`q_{ax}(t_f) = v_\textrm{avg} (t_f - t_0)` and used as a
-  constraint.
-- The parallel option is enabled because the equations of motion are relatively
-  large. This speeds up the evaluation of the constraints and its Jacobian
-  about 1.3X.
-
-Introduction
-------------
-
-This example replicates a similar solution as shown in [Ackermann2010]_ using
-joint torques as inputs instead of muscle activations [1]_.
-
-gait2d provides a joint torque driven 2D bipedal human dynamical model with
-seven body segments (trunk, thighs, shanks, feet) and foot-ground contact
-forces based on the description in [Ackermann2010]_.
-
-The optimal control goal is to find the joint torques (hip, knee, ankle) that
-generate a minimal mean-torque periodic motion to ambulate at a specified
-average speed over half a period.
-
-Import all necessary modules, functions, and classes:
-"""
+# Import all necessary modules, functions, and classes:
 import os
 from opty import Problem
 from opty.utils import f_minus_ma
 from pygait2d import simulate
-from pygait2d.segment import time_symbol, contact_force
+from pygait2d.segment import time_symbol
 from symmeplot.matplotlib import Scene3D
 import matplotlib.pyplot as plt
 from matplotlib.animation import FuncAnimation
 import numpy as np
 import sympy as sm
 
-from derive import derive_equations_of_motion
+from derive import derive_equations_of_motion, contact_force
 
 # %%
 # Pick an average ambulation speed and the number of discretization nodes for
 # the half period and define the time step as a variable :math:`h`.
 
-speed = 1.0  # m/s
+speed = 1.2  # m/s
 num_nodes = 50
 h = sm.symbols('h', real=True, positive=True)
 duration = (num_nodes - 1)*h
+
+# load some normal walking kinematics
+f = np.loadtxt('../data/Winter_normal.csv')
 
 # %%
 # Derive the equations of motion using gait2d.
@@ -78,7 +45,6 @@ speeds = symbolics[5]
 specified = symbolics[6]
 
 eom = f_minus_ma(mass_matrix, forcing_vector, coordinates + speeds)
-eom.shape
 
 # %%
 # The equations of motion have this many mathematical operations:
@@ -110,7 +76,7 @@ num_states = len(states)
 # Each joint has a joint torque acting between the adjacent bodies.
 qax, qay, qa, qb, qc, qd, qe, qf, qg = coordinates
 uax, uay, ua, ub, uc, ud, ue, uf, ug = speeds
-v, Tb, Tc, Td, Te, Tf, Tg = specified
+v, Tb, Tc, Td, Te, Tf, Tg            = specified
 
 # %%
 # The constants are loaded from a file of realistic geometry, mass, inertia,
@@ -120,7 +86,7 @@ par_map = simulate.load_constants(constants,
                                   'data/example_constants.yml'))
 
 # %%
-# Set belt velocity v(t) to zero
+# Set belt velocity v(t) to a constant speed
 traj_map = {
     v: speed + np.zeros(num_nodes),
 }
@@ -149,7 +115,7 @@ bounds.update({k: (-np.deg2rad(60.0), np.deg2rad(60.0))
 bounds.update({k: (-np.deg2rad(90.0), 0.0)
                for k in [qc, qf]})
 # foot
-bounds.update({k: (-np.deg2rad(60.0), np.deg2rad(60.0))
+bounds.update({k: (-np.deg2rad(40.0), np.deg2rad(40.0))
                for k in [qd, qg]})
 # all rotational speeds
 bounds.update({k: (-np.deg2rad(400.0), np.deg2rad(400.0))
@@ -206,6 +172,7 @@ def obj_grad(free):
 
 # %%
 # Create an optimization problem and solve it.
+print("Creating the opty problem.")
 prob = Problem(
     obj,
     obj_grad,
@@ -220,26 +187,30 @@ prob = Problem(
     time_symbol=time_symbol,
     parallel=True,
 )
+prob.add_option('max_iter', 3000)
 
 # %%
 # Find the optimal solution and save it if it converges.
 #
-# This loads a precomputed solution to save computation time. Delete the file
-# to try one of the suggested initial guesses.
+# This loads a precomputed solution (if it exists) to use as initial guess.
+# Delete the file to use a random initial guess.
 fname = f'human_gait_{num_nodes}_nodes_solution.csv'
 if os.path.exists(fname):
     print('Loading solution stored in {} as the initial guess.'.format(fname),
           'Delete the file to use a random guess')
     initial_guess = np.loadtxt(fname)
 else:
-    np.random.seed(0)  # this makes the result reproducible
+    np.random.seed(2)  # this makes the result reproducible
+    # a random intial guess that stays close to the midpoint between bounds
     initial_guess = (0.5*(prob.lower_bound + prob.upper_bound) +
                      0.01*(prob.upper_bound - prob.lower_bound)*
                      np.random.random_sample(prob.num_free))
 solution, info = prob.solve(initial_guess)
-if info['status'] == 1:
+if info['status'] == 0:
     np.savetxt(f'human_gait_{num_nodes}_nodes_solution.csv', solution,
                fmt='%.5f')
+else:
+    breakpoint()        
 
 # %%
 # Use symmeplot to make an animation of the motion.
@@ -279,6 +250,7 @@ def animate():
     ], color="k")
 
     # creates a moving ground (many points to deal with matplotlib limitation)
+    # ?? can we make the dashed line move to the left?
     scene.add_line([origin.locatenew('gl', s*ground.x) for s in
                     np.linspace(-2.0, 2.0)], linestyle='--', color='tab:green',
                    axlim_clip=True)
@@ -289,13 +261,13 @@ def animate():
 
     # show ground reaction force vectors at the heels and toes, scaled to
     # visually reasonable length
-    scene.add_vector(contact_force(rfoot.toe, ground, origin)/600.0,
+    scene.add_vector(contact_force(rfoot.toe, ground, origin, v)/600.0,
                      rfoot.toe, color="tab:blue")
-    scene.add_vector(contact_force(rfoot.heel, ground, origin)/600.0,
+    scene.add_vector(contact_force(rfoot.heel, ground, origin, v)/600.0,
                      rfoot.heel, color="tab:blue")
-    scene.add_vector(contact_force(lfoot.toe, ground, origin)/600.0,
+    scene.add_vector(contact_force(lfoot.toe, ground, origin, v)/600.0,
                      lfoot.toe, color="tab:blue")
-    scene.add_vector(contact_force(lfoot.heel, ground, origin)/600.0,
+    scene.add_vector(contact_force(lfoot.heel, ground, origin, v)/600.0,
                      lfoot.heel, color="tab:blue")
 
     scene.lambdify_system(states + specified + constants)
@@ -321,14 +293,14 @@ def animate():
 
     eval_rforce = sm.lambdify(
         states + specified + constants,
-        (contact_force(rfoot.toe, ground, origin) +
-         contact_force(rfoot.heel, ground, origin)).to_matrix(ground),
+        (contact_force(rfoot.toe, ground, origin, v) +
+         contact_force(rfoot.heel, ground, origin, v)).to_matrix(ground),
         cse=True)
 
     eval_lforce = sm.lambdify(
         states + specified + constants,
-        (contact_force(lfoot.toe, ground, origin) +
-         contact_force(lfoot.heel, ground, origin)).to_matrix(ground),
+        (contact_force(lfoot.toe, ground, origin, v) +
+         contact_force(lfoot.heel, ground, origin, v)).to_matrix(ground),
         cse=True)
 
     rforces = np.array([eval_rforce(*gci).squeeze() for gci in gait_cycle.T])
