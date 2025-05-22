@@ -16,10 +16,11 @@ from pygait2d import simulate
 import derive
 
 
-if os.path.exists('eom_cache.txt'):
+if os.path.exists('eom_cache.txt'):  # delete eom_cache.txt to regenerate
     with open('eom_cache.txt', 'r') as f:
         (mass_matrix, forcing_vector, constants, coordinates, speeds,
          specified) = sm.sympify(f.read())
+    print('Equations of motion loaded from cache.')
 else:
     (mass_matrix, forcing_vector, _, constants, coordinates, speeds, specified,
      _, _, _, _) = derive.derive_equations_of_motion(gait_cycle_control=True)
