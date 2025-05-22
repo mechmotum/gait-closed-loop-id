@@ -61,8 +61,8 @@ from derive import derive_equations_of_motion
 # Pick an average ambulation speed and the number of discretization nodes for
 # the half period and define the time step as a variable :math:`h`.
 
-speed = 0.4  # m/s
-num_nodes = 40
+speed = 1.0  # m/s
+num_nodes = 50
 h = sm.symbols('h', real=True, positive=True)
 duration = (num_nodes - 1)*h
 
@@ -110,22 +110,19 @@ num_states = len(states)
 # Each joint has a joint torque acting between the adjacent bodies.
 qax, qay, qa, qb, qc, qd, qe, qf, qg = coordinates
 uax, uay, ua, ub, uc, ud, ue, uf, ug = speeds
-Fax, Fay, Ta, Tb, Tc, Td, Te, Tf, Tg = specified
+v, Tb, Tc, Td, Te, Tf, Tg = specified
 
 # %%
 # The constants are loaded from a file of realistic geometry, mass, inertia,
 # and foot deformation properties of an adult human.
 par_map = simulate.load_constants(constants,
                                   os.path.join(os.path.dirname(__file__), '..',
-                                               'data/example_constants.yml'))
+                                  'data/example_constants.yml'))
 
 # %%
-# gait2d provides "hand of god" inputs to manipulate the trunk for some
-# modeling purposes. Set these to zero.
+# Set belt velocity v(t) to zero
 traj_map = {
-    Fax: np.zeros(num_nodes),
-    Fay: np.zeros(num_nodes),
-    Ta: np.zeros(num_nodes),
+    v: speed + np.zeros(num_nodes),
 }
 
 # %%
@@ -137,7 +134,7 @@ traj_map = {
 # - Put a maximum on the peak torque values.
 
 bounds = {
-    h: (0.001, 0.1),
+    h: (0.01, 0.1),
     delt: (0.0, 10.0),
     qax: (0.0, 10.0),
     qay: (0.5, 1.5),
@@ -146,13 +143,13 @@ bounds = {
     uay: (-10.0, 10.0),
 }
 # hip
-bounds.update({k: (-np.deg2rad(40.0), np.deg2rad(40.0))
+bounds.update({k: (-np.deg2rad(60.0), np.deg2rad(60.0))
                for k in [qb, qe]})
 # knee
-bounds.update({k: (-np.deg2rad(60.0), 0.0)
+bounds.update({k: (-np.deg2rad(90.0), 0.0)
                for k in [qc, qf]})
 # foot
-bounds.update({k: (-np.deg2rad(30.0), np.deg2rad(30.0))
+bounds.update({k: (-np.deg2rad(60.0), np.deg2rad(60.0))
                for k in [qd, qg]})
 # all rotational speeds
 bounds.update({k: (-np.deg2rad(400.0), np.deg2rad(400.0))
@@ -170,7 +167,7 @@ bounds.update({k: (-100.0, 100.0)
 instance_constraints = (
     delt.func(0*h) - 0.0,
     qax.func(0*h) - 0.0,
-    qax.func(duration) - speed*delt.func(duration),
+    qax.func(duration) - 0.0,
     qay.func(0*h) - qay.func(duration),
     qa.func(0*h) - qa.func(duration),
     qb.func(0*h) - qe.func(duration),
@@ -235,6 +232,7 @@ if os.path.exists(fname):
           'Delete the file to use a random guess')
     initial_guess = np.loadtxt(fname)
 else:
+    np.random.seed(0)  # this makes the result reproducible
     initial_guess = (0.5*(prob.lower_bound + prob.upper_bound) +
                      0.01*(prob.upper_bound - prob.lower_bound)*
                      np.random.random_sample(prob.num_free))
@@ -259,8 +257,9 @@ def animate():
     ax3d = fig.add_subplot(1, 2, 1, projection='3d')
     ax2d = fig.add_subplot(1, 2, 2)
 
-    hip_proj = origin.locatenew('m', qax*ground.x)
-    scene = Scene3D(ground, hip_proj, ax=ax3d)
+    # hip_proj = origin.locatenew('m', qax*ground.x)
+    # scene = Scene3D(ground, hip_proj, ax=ax3d)
+    scene = Scene3D(ground, origin, ax=ax3d)
 
     # creates the stick person
     scene.add_line([
@@ -302,7 +301,7 @@ def animate():
     scene.lambdify_system(states + specified + constants)
     gait_cycle = np.vstack((
         xs,  # q, u shape(2n, N)
-        np.zeros((3, len(times))),  # Fax, Fay, Ta (hand of god), shape(3, N)
+        speed + np.zeros((1, len(times))),  # belt speed shape(1, N)
         rs,  # r, shape(q, N)
         np.repeat(np.atleast_2d(np.array(list(par_map.values()))).T,
                   len(times), axis=1),  # p, shape(r, N)
