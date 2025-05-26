@@ -22,19 +22,47 @@ import sympy as sm
 from derive import derive_equations_of_motion, contact_force
 
 # %%
-# Pick an average ambulation speed and the number of discretization nodes for
-# the half period and define the time step as a variable :math:`h`.
+# some settings
+treadmill = False
+num_nodes = 50         # number of time nodes for the half period
+eom_scale = 0.1       # this seems to solve a lot faster than scale=1
+obj_scale = 0.001       # this seems to solve a lot faster than scale=1
 
-speed = 1.2  # m/s
-num_nodes = 50
-h = sm.symbols('h', real=True, positive=True)
-duration = (num_nodes - 1)*h
+# load normal gait data from Winter's book
+fname = os.path.join(os.path.dirname(__file__), '../data/Winter_normal.csv')
+data = np.genfromtxt(fname, delimiter=',')
 
-# load some normal walking kinematics
-f = np.loadtxt('../data/Winter_normal.csv')
+# extract gait cycle duration and speed
+duration = data[1,2]/2;  # extract half gait cycle duration
+h = duration / (num_nodes - 1)
+speed = data[2,2];  # walking speed
+if treadmill:
+    treadmill_speed = speed
+    required_translation = 0
+else:
+    treadmill_speed = 0;
+    required_translation = duration*speed
+
+# extract  hip,knee,ankle angle (full gait cycle)
+ang      = np.deg2rad(data[6:57,4:7])
+ang[:,1] = -ang[:,1]  # invert Winter's knee angle, to be compatible with our model
+
+# convert full gait cycle (one side) into a half gait cycle for both sides
+# and resample to num_nodes
+ang = np.concatenate((ang[:26,:],ang[25:,:]), axis=1)
+rows,cols = ang.shape;
+ang_resampled = np.zeros((num_nodes,cols))
+t = np.arange(0,rows) / (rows-1)  # gait phase from data
+t_new = np.arange(0,num_nodes) / (num_nodes-1) # gait phase for simulation
+for i in range(0,cols):
+    ang_resampled[:,i] = np.interp(t_new, t, ang[:,i])
+
+# store the angle trajectories in a 1d array, for tracking, and generate
+# corresponding indices for the free variables in the optimization problem
+# ang_data = reshape()
 
 # %%
-# Derive the equations of motion using gait2d.
+# Derive the equations of motion
 symbolics = derive_equations_of_motion()
 
 mass_matrix = symbolics[0]
@@ -44,16 +72,15 @@ coordinates = symbolics[4]
 speeds = symbolics[5]
 specified = symbolics[6]
 
-eom = f_minus_ma(mass_matrix, forcing_vector, coordinates + speeds)
+eom = eom_scale * f_minus_ma(mass_matrix, forcing_vector, coordinates + speeds)
 
 # %%
 # The equations of motion have this many mathematical operations:
-sm.count_ops(eom)
+print('Number of operations in eom:', sm.count_ops(eom))
 
 # %%
-# :math:`t_f - t_0` needs to be available to compute the average speed in the
-# instance constraint, so add an extra differential equation that is the time
-# derivative of the difference in time.
+# Create a state variable "delt" which is equal to time, for use in
+# controller and/or instance constraints.
 #
 # .. math::
 #
@@ -88,7 +115,7 @@ par_map = simulate.load_constants(constants,
 # %%
 # Set belt velocity v(t) to a constant speed
 traj_map = {
-    v: speed + np.zeros(num_nodes),
+    v: treadmill_speed + np.zeros(num_nodes),
 }
 
 # %%
@@ -100,7 +127,6 @@ traj_map = {
 # - Put a maximum on the peak torque values.
 
 bounds = {
-    h: (0.01, 0.1),
     delt: (0.0, 10.0),
     qax: (0.0, 10.0),
     qay: (0.5, 1.5),
@@ -121,7 +147,7 @@ bounds.update({k: (-np.deg2rad(40.0), np.deg2rad(40.0))
 bounds.update({k: (-np.deg2rad(400.0), np.deg2rad(400.0))
                for k in [ua, ub, uc, ud, ue, uf, ug]})
 # all joint torques
-bounds.update({k: (-100.0, 100.0)
+bounds.update({k: (-200.0, 200.0)
                for k in [Tb, Tc, Td, Te, Tf, Tg]})
 
 # %%
@@ -133,7 +159,7 @@ bounds.update({k: (-100.0, 100.0)
 instance_constraints = (
     delt.func(0*h) - 0.0,
     qax.func(0*h) - 0.0,
-    qax.func(duration) - 0.0,
+    qax.func(duration) - required_translation,
     qay.func(0*h) - qay.func(duration),
     qa.func(0*h) - qa.func(duration),
     qb.func(0*h) - qe.func(duration),
@@ -158,16 +184,15 @@ instance_constraints = (
 # The objective is to minimize the mean of all joint torques.
 def obj(free):
     """Minimize the sum of the squares of the control torques."""
-    T, h = free[num_states*num_nodes:-1], free[-1]
-    return h*np.sum(T**2)
+    T = free[num_states*num_nodes:]
+    return obj_scale * h*np.sum(T**2)
 
 
 def obj_grad(free):
-    T, h = free[num_states*num_nodes:-1], free[-1]
     grad = np.zeros_like(free)
-    grad[num_states*num_nodes:-1] = 2.0*h*T
-    grad[-1] = np.sum(T**2)
-    return grad
+    T = free[num_states*num_nodes:]
+    grad[num_states*num_nodes:] = 2.0*h*T
+    return obj_scale * grad
 
 
 # %%
@@ -197,26 +222,30 @@ prob.add_option('max_iter', 3000)
 fname = f'human_gait_{num_nodes}_nodes_solution.csv'
 if os.path.exists(fname):
     print('Loading solution stored in {} as the initial guess.'.format(fname),
-          'Delete the file to use a random guess')
+          'Delete the file now to use a random guess')
+    input("Hit Enter to continue, or CTRL-C to quit.")
     initial_guess = np.loadtxt(fname)
 else:
-    np.random.seed(2)  # this makes the result reproducible
+    np.random.seed(1)  # this makes the result reproducible
     # a random intial guess that stays close to the midpoint between bounds
     initial_guess = (0.5*(prob.lower_bound + prob.upper_bound) +
                      0.01*(prob.upper_bound - prob.lower_bound)*
                      np.random.random_sample(prob.num_free))
 solution, info = prob.solve(initial_guess)
 if info['status'] == 0:
-    np.savetxt(f'human_gait_{num_nodes}_nodes_solution.csv', solution,
-               fmt='%.5f')
+    np.savetxt(fname, solution, fmt='%.5f')
 else:
-    breakpoint()        
+    breakpoint()
+    
+# %%
+# make a plot of joint angles
+
 
 # %%
 # Use symmeplot to make an animation of the motion.
-xs, rs, _, h_val = prob.parse_free(solution)
-times = np.linspace(0.0, (num_nodes - 1)*h_val, num=num_nodes)
-
+xs, rs, _ = prob.parse_free(solution)
+times = np.linspace(0.0, (num_nodes - 1)*h, num=num_nodes)
+h_val = h
 
 def animate():
 
@@ -336,13 +365,3 @@ animation = animate()
 animation.save('human_gait.gif', fps=int(1.0/h_val))
 
 plt.show()
-
-# %%
-# Footnotes
-# ---------
-#
-# .. [1] The 2010 Ackermann and van den Bogert solution was the original target
-#    problem opty was written to solve, with an aim to extend it to parameter
-#    identification of closed loop control walking. For various reasons, this
-#    example was not added until 2025, 10 years after the example was first
-#    proposed.

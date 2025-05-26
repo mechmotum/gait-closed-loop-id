@@ -46,10 +46,10 @@ def contact_force(point, ground, origin, v_belt):
 
     velocity = point.vel(ground)
 
-    # The addition of "- y_location" here adds a small linear term to the
-    # cubic stiffness and creates a light attractive force torwards the
-    # ground. This is in place to ensure that gradients can be computed for
-    # the optimization used in Ackermann and van den Bogert 2010.
+    # The addition of "- y_location" here adds a small linear stiffness (1 N/s)
+    # to the cubic stiffness and creates a light attractive force torwards the
+    # ground. This is in place to ensure a non-zero gradient even when
+    # the optimizer sees a trajectory that is not (yet) touching the ground.
     contact_stiffness, contact_damping = sm.symbols('kc, cc', **sym_kwargs)
     contact_friction_coefficient, friction_scaling_factor = \
         sm.symbols('mu, vs', **sym_kwargs)
@@ -60,7 +60,7 @@ def contact_force(point, ground, origin, v_belt):
     # friction force depends on velocity of the contact point relative
     # to the treadmill belt (which is moving backwards)
     friction = -contact_friction_coefficient * vertical_force * \
-        ((2 / (1 + sm.exp( (-v_belt-velocity.dot(ground.x)) /
+        ((2 / (1 + sm.exp( (-v_belt - velocity.dot(ground.x)) /
                           friction_scaling_factor))) - 1)
 
     return friction * ground.x + vertical_force * ground.y
