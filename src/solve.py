@@ -302,7 +302,7 @@ def animate():
     scene.lambdify_system(states + specified + constants)
     gait_cycle = np.vstack((
         xs,  # q, u shape(2n, N)
-        speed + np.zeros((1, len(times))),  # belt speed shape(1, N)
+        treadmill_speed + np.zeros((1, len(times))),  # belt speed shape(1, N)
         rs,  # r, shape(q, N)
         np.repeat(np.atleast_2d(np.array(list(par_map.values()))).T,
                   len(times), axis=1),  # p, shape(r, N)
