@@ -56,12 +56,22 @@ def contact_force(point, ground, origin, v_belt):
 
     vertical_force = (contact_stiffness * penetration ** 3 - y_location) * \
         (1 - contact_damping * velocity.dot(ground.y))
+    
+    # Quadratic vertical force model
+    # vertical_force = (1e7 * penetration ** 2 - y_location) * \
+    #     (1 - contact_damping * velocity.dot(ground.y))
 
     # friction force depends on velocity of the contact point relative
     # to the treadmill belt (which is moving backwards)
+    
+    # vs = 0.1 solves much faster than 0.01 (we should also use a different sigmoid function)
+    # friction_scaling_factor = 0.1;
+    # friction = -contact_friction_coefficient * vertical_force * \
+    #     ((2 / (1 + sm.exp( (-v_belt - velocity.dot(ground.x)) /
+    #                       friction_scaling_factor))) - 1)
     friction = -contact_friction_coefficient * vertical_force * \
         ((2 / (1 + sm.exp( (-v_belt - velocity.dot(ground.x)) /
-                          friction_scaling_factor))) - 1)
+          friction_scaling_factor))) - 1)
 
     return friction * ground.x + vertical_force * ground.y
 
