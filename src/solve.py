@@ -19,12 +19,11 @@ import matplotlib.pyplot as plt
 from matplotlib.animation import FuncAnimation
 import numpy as np
 import sympy as sm
-
 from derive import derive_equations_of_motion, contact_force
 
 # %%
 # some settings
-make_animation = False
+make_animation = True
 num_nodes = 50        # number of time nodes for the half period
 eom_scale = 1         # scaling factor for eom
 obj_Wtorque = 0.001    # weight of torque objective
@@ -69,15 +68,11 @@ speeds = symbolics[5]
 specified = symbolics[6]
 
 eom = eom_scale * f_minus_ma(mass_matrix, forcing_vector, coordinates + speeds)
-
-# %%
-# The equations of motion have this many mathematical operations:
 print('Number of operations in eom:', sm.count_ops(eom))
 
 # %%
 # Create a state variable "delt" which is equal to time, for use in
-# controller and/or instance constraints.
-#
+# controller and/or instance constraints.#
 # .. math::
 #
 #    \Delta_t(t) = \int_{t_0}^{t} d\tau
@@ -141,7 +136,7 @@ bounds = {
     uay: (-10.0, 10.0),
 }
 # hip
-bounds.update({k: (-np.deg2rad(40.0), np.deg2rad(40.0))
+bounds.update({k: (-np.deg2rad(60.0), np.deg2rad(60.0))
                for k in [qb, qe]})
 # knee
 bounds.update({k: (-np.deg2rad(90.0), 0.0)
@@ -183,7 +178,8 @@ instance_constraints = (
     uf.func(0*h) - uc.func(duration),
     ug.func(0*h) - ud.func(duration),
     
-    # torques must also be periodic
+    # torques must also be periodic, because torques at t=0 are never
+    # used with Backward Euler, and will become zero due to the cost function
     # (this causes an opty error, why?)
     # Tb.func(0*h) - Te.func(duration),
     # Tc.func(0*h) - Tf.func(duration),
@@ -191,7 +187,7 @@ instance_constraints = (
     # Te.func(0*h) - Tb.func(duration),
     # Tf.func(0*h) - Tc.func(duration),
     # Tg.func(0*h) - Td.func(duration),
-    
+
 )
 
 
@@ -206,13 +202,12 @@ instance_constraints = (
 # instance constraint (which does not work right now, see instance constraints).
 angle_indices =  3*num_nodes + np.arange(0, num_angles*num_nodes) # start at the hip angle
 torque_indices = num_states*num_nodes + np.arange(0, num_angles*num_nodes)
-obj_show = False  # don't print during optimization
-def obj(free):
+def obj(free, obj_show=False):
     f_torque = obj_Wtorque * h * np.sum(free[torque_indices]**2)
     f_track  = obj_Wtrack  * h * np.sum((free[angle_indices] - ang_data)**2)
     f_total = f_torque + f_track
     if obj_show:
-        print(f"obj: {f_total:.3f} = {f_torque:.3f}(torque) + {f_track:.3f}(track)")
+        print(f"   obj: {f_total:.3f} = {f_torque:.3f}(torque) + {f_track:.3f}(track)")
     return f_total
 
 
@@ -224,61 +219,57 @@ def obj_grad(free):
 
 
 # %%
-# Function to solve the problem for a certain walking speed
+# create the optimization problem
+print(datetime.now().strftime("%H:%M:%S") + f" creating the opty problem")
+
+# Create a belt velocity signal v(t)
+traj_map = { v: np.zeros(num_nodes) }
+
+prob = Problem(
+    obj,
+    obj_grad,
+    eom,
+    states,
+    num_nodes,
+    h,
+    known_parameter_map=par_map,
+    known_trajectory_map=traj_map,
+    instance_constraints=instance_constraints,
+    bounds=bounds,
+    time_symbol=time_symbol,
+    parallel=True,
+)
+prob.add_option('max_iter', 3000)
+prob.add_option('print_level', 0) 
+
+# %%
+# solve the gait optimization problem for given belt speed
 def solve_gait(speed, initial_guess=None):
-    print(datetime.now().strftime("%H:%M:%S") + 
-            f" creating the opty problem for {speed:.3f} m/s")
-    # Set belt velocity v(t) to a constant speed
-    traj_map = {
-        v: speed + np.zeros(num_nodes),
-    }
     
-    prob = Problem(
-        obj,
-        obj_grad,
-        eom,
-        states,
-        num_nodes,
-        h,
-        known_parameter_map=par_map,
-        known_trajectory_map=traj_map,
-        instance_constraints=instance_constraints,
-        bounds=bounds,
-        time_symbol=time_symbol,
-        parallel=True,
-    )
-    prob.add_option('max_iter', 3000) 
-    prob.add_option('print_level', 0) 
+    # change the belt speed signal
+    traj_map.update({ v: speed + np.zeros(num_nodes)})
     
-    # if no initial guess was provided, create one
-    if initial_guess is None:
-        initial_guess = (0.5*(prob.lower_bound + prob.upper_bound) +
-                     0.01*(prob.upper_bound - prob.lower_bound)*
-                     np.random.random_sample(prob.num_free))
-        
-    print(datetime.now().strftime("%H:%M:%S") + " solving problem.")
+    # solve
+    print(datetime.now().strftime("%H:%M:%S") + f" solving for {speed:.3f} m/s")
     solution, info = prob.solve(initial_guess)
-    if info['status'] != 0:
-        print('IPOPT did not find an optimal solution.')
-        print('Continuing anyway...')
+    # we accept solve_succeeded (0) and solved_to_acceptable_level (1)
+    if info['status'] > 1:
+        print("IPOPT was not successful.")
+        breakpoint()
+        
+    # show the final objective function value and its contributions
+    obj(solution, obj_show = True)
         
     return solution
-        
+
 # solve for a series of increasing speeds, ending at the required speed
 # initial_guess = None
 for speed in np.linspace(0,walking_speed,10):
     solution = solve_gait(speed, initial_guess)
-    # breakpoint()
     initial_guess = solution  # use this solution as initial guess for the next problem
 
-# solution = solve_gait(0.0, initial_guess)
-    
 fname = f'human_gait_{num_nodes}_nodes_solution.csv'
 np.savetxt(fname, solution, fmt='%.5f')
-
-# show the final objective function value and its contributions
-obj_show = True
-obj(solution)
     
 # %%
 # make plots
@@ -323,13 +314,12 @@ plt.xlabel('time (s)')
 
 plt.show()
 
-
 # %%
 # Use symmeplot to make an animation of the motion.
 if make_animation:
     xs, rs, _ = prob.parse_free(solution)
     times = np.linspace(0.0, (num_nodes - 1)*h, num=num_nodes)
-    h_val = h
+    
     
     def animate():
     
@@ -438,13 +428,16 @@ if make_animation:
             fig,
             update,
             frames=range(len(times)),
-            interval=h_val*1000,
+            interval=h*1000,
         )
     
         return ani
     
     
     animation = animate()
-    animation.save('human_gait.gif', fps=int(1.0/h_val))
+    
+    animation.save('human_gait.gif', fps=int(1.0/h))
+    
     plt.show()
+
 
