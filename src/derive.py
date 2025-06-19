@@ -65,10 +65,7 @@ def contact_force(point, ground, origin, v_belt):
     # to the treadmill belt (which is moving backwards)
     
     # vs = 0.1 solves much faster than 0.01 (we should also use a different sigmoid function)
-    # friction_scaling_factor = 0.1;
-    # friction = -contact_friction_coefficient * vertical_force * \
-    #     ((2 / (1 + sm.exp( (-v_belt - velocity.dot(ground.x)) /
-    #                       friction_scaling_factor))) - 1)
+    friction_scaling_factor = 0.1;
     friction = -contact_friction_coefficient * vertical_force * \
         ((2 / (1 + sm.exp( (-v_belt - velocity.dot(ground.x)) /
           friction_scaling_factor))) - 1)
