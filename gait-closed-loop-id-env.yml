@@ -20,4 +20,4 @@ dependencies:
   - yeadon
   # NOTE : install the development version of opty
   - pip:
-    - -e git+https://github.com/csu-hmc/opty#egg=opty
+    - git+https://github.com/csu-hmc/opty#egg=opty
