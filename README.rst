@@ -25,6 +25,10 @@ Install an editable development version of gait2d::
 
    cd ../gait2d
    python -m pip install --no-dependencies --no-build-isolation --editable  .
+   
+If that fails, try::
+
+   python -m pip install --no-deps --no-build-isolation git+https://github.com/csu-hmc/gait2d#egg=gait2d
 
 Change back into the project repository::
 
