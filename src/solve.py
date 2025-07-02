@@ -151,7 +151,7 @@ bounds.update({k: (-np.deg2rad(40.0), np.deg2rad(40.0))
 bounds.update({k: (-np.deg2rad(400.0), np.deg2rad(400.0))
                for k in [ua, ub, uc, ud, ue, uf, ug]})
 # all joint torques
-bounds.update({k: (-100.0, 100.0)
+bounds.update({k: (-1000.0, 1000.0)
                for k in [Tb, Tc, Td, Te, Tf, Tg]})
 
 # %%
@@ -183,13 +183,12 @@ instance_constraints = (
 
     # torques must also be periodic, because torques at t=0 are never
     # used with Backward Euler, and will become zero due to the cost function
-    # (this causes an opty error, why?)
-    # Tb.func(0*h) - Te.func(duration),
-    # Tc.func(0*h) - Tf.func(duration),
-    # Td.func(0*h) - Tg.func(duration),
-    # Te.func(0*h) - Tb.func(duration),
-    # Tf.func(0*h) - Tc.func(duration),
-    # Tg.func(0*h) - Td.func(duration),
+    Tb.func(0*h) - Te.func(duration),
+    Tc.func(0*h) - Tf.func(duration),
+    Td.func(0*h) - Tg.func(duration),
+    Te.func(0*h) - Tb.func(duration),
+    Tf.func(0*h) - Tc.func(duration),
+    Tg.func(0*h) - Td.func(duration),
 
 )
 
@@ -297,7 +296,7 @@ t = np.arange(2*num_nodes-1) * h
 # and hip/ankle extension torque)
 ang[:, 1] = -ang[:, 1]
 dat[:, 1] = -dat[:, 1]
-tor[[0, 2], :] = -tor[[0, 2], :]
+tor[:, [0, 2]] = -tor[:, [0, 2]]
 anglabels = ('hip flexion', 'knee flexion', 'ankle dorsiflexion')
 torlabels = ('hip extension', 'knee extension', 'ankle plantarflexion')
 
@@ -314,8 +313,7 @@ plt.ylabel('angle (deg)')
 
 plt.subplot(2, 1, 2)
 for i in range(3):
-    # don't plot the torque at t=0, it's zero and not really part of the trajectory
-    plt.plot(t[1:],tor[1:, i], colors[i], label=torlabels[i])
+    plt.plot(t, tor[:, i], colors[i], label=torlabels[i])
 plt.legend()
 plt.ylabel('torque (Nm)')
 plt.xlabel('time (s)')
