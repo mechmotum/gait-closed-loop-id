@@ -1,6 +1,8 @@
 # solve_standing.py
 
-# Finds a minimum-effort standing state
+# Finds a minimum-effort standing state.
+# We do this as a trajectory optimization with two time points,
+# so we can use opty.
 
 # Import all necessary modules, functions, and classes:
 import os
@@ -81,11 +83,11 @@ instance_constraints = None
 num_angles = 6
 torque_indices = num_states*num_nodes + np.arange(0, num_angles*num_nodes)
 def obj(free):
-    return h * np.sum(free[torque_indices]**2)
+    return np.sum(free[torque_indices]**2)
 
 def obj_grad(free):
     grad = np.zeros_like(free)
-    grad[torque_indices] = 2.0*h*free[torque_indices]
+    grad[torque_indices] = 2.0*free[torque_indices]
     return grad
 
 
@@ -115,7 +117,10 @@ initial_guess = (0.5*(prob.lower_bound + prob.upper_bound) +
                  0.01*(prob.upper_bound - prob.lower_bound)*
                  np.random.random_sample(prob.num_free))
 solution, info = prob.solve(initial_guess)
+
+# only keep the first node (the second is the same)
+solution = solution[0:-1:2];
 if info['status'] == 0:
-    np.savetxt('standing.csv', solution, fmt='%.5f')
+    np.savetxt('standing.csv', solution, fmt='%.15f')
 else:
     breakpoint()

@@ -25,9 +25,12 @@ from derive import derive_equations_of_motion, contact_force
 # some settings
 make_animation = True
 num_nodes = 50       # number of time nodes for the half period
-eom_scale = 1.0      # scaling factor for eom
-obj_Wtorque = 0.001  # weight of torque objective
-obj_Wtrack = 10.0    # weight of tracking objective
+genforce_scale = 0.001 # convert to kN and kNm
+eom_scale = 10.0     # scaling factor for eom
+# genforce_scale = 1 # convert to kN and kNm
+# eom_scale = 1     # scaling factor for eom
+obj_Wtorque = 100   # weight of torque objective
+obj_Wtrack = 100      # weight of tracking objective
 
 # load normal gait data from Winter's book
 fname = os.path.join(os.path.dirname(__file__),
@@ -48,9 +51,9 @@ ang[:, 1] = -ang[:, 1]
 # resample to num_nodes
 ang = np.concatenate((ang[:26, :], ang[25:, :]), axis=1)
 rows, num_angles = ang.shape
-ang_resampled = np.zeros((num_nodes, num_angles))
+ang_resampled = np.zeros((num_nodes-1, num_angles))
 t = np.arange(0, rows)/(rows-1)  # gait phase from data
-t_new = np.arange(0, num_nodes)/(num_nodes-1)  # gait phase for simulation
+t_new = np.arange(0, num_nodes-1)/(num_nodes-1)  # gait phase for simulation
 for i in range(0, num_angles):
     ang_resampled[:, i] = np.interp(t_new, t, ang[:, i])
 
@@ -69,8 +72,14 @@ coordinates = symbolics[4]
 speeds = symbolics[5]
 specified = symbolics[6]
 
-eom = eom_scale*f_minus_ma(mass_matrix, forcing_vector, coordinates + speeds)
+eom = f_minus_ma(mass_matrix, forcing_vector, coordinates + speeds)
+breakpoint()
 print('Number of operations in eom:', sm.count_ops(eom))
+
+# do an overall scale, and then a unit conversion to kN and kNm
+eom = eom_scale * eom
+for i in range(9):
+    eom[9+i] = genforce_scale * eom[9+i]
 
 # %%
 # Create a state variable "delt" which is equal to time, for use in controller
@@ -94,7 +103,7 @@ if not os.path.exists(fname):
     # executes standing solution and generates 'standing.csv'
     import solve_standing
 standing_sol = np.loadtxt(fname)
-standing_state = standing_sol[0:2*(num_states - 1):2].reshape(-1, 1)  # coordinates and speeds as column vector
+standing_state = standing_sol[0:num_states - 1].reshape(-1, 1)  # coordinates and speeds as column vector
 state_traj = np.tile(standing_state, (1, num_nodes))  # make num_nodes copies
 delta_traj = h*np.arange(num_nodes).reshape(1, -1)    # row vector
 tor_traj = np.zeros((num_angles, num_nodes))          # intialize torques to zero
@@ -196,19 +205,25 @@ instance_constraints = (
 # %%
 # The objective is a combination of squared torques and squared tracking errors
 
-# Make indices for the free variables that are angles and torques
-# TODO: this could be made less specific for this model and problem
-# TODO: we should exclude the torques and angles at the first (or last) time point,
-# otherwise those are counted twice. We can't do that for the torques (yet)
-# because, with backward Euler, torque at t=0 is never used, so requires an
-# instance constraint (which does not work right now, see instance constraints).
-angle_indices =  3*num_nodes + np.arange(0, num_angles*num_nodes)  # start at the hip angle
-torque_indices = num_states*num_nodes + np.arange(0, num_angles*num_nodes)
-
-
+# Make indices for the free variables that are angles and torques.
+# The final node is excluded, it is the first node of the next cycle
+angle_indices = np.empty(num_angles * (num_nodes-1), dtype = np.int64)
+inodes = np.arange(0,num_nodes-1)
+for iangle in range (0,num_angles):
+    # skip the first 3 DOFs and angles before iangle
+    angle_indices[iangle*(num_nodes-1) + inodes] = \
+                  (3+iangle)*num_nodes + inodes
+                  
+torque_indices = np.empty(num_angles * (num_nodes-1), dtype = np.int64)
+inodes = np.arange(0,num_nodes-1)
+for itorque in range (0,num_angles):
+    # skip the state trajectories, and torques before itorque
+    torque_indices[itorque*(num_nodes-1) + inodes] = \
+                  (num_states+itorque)*num_nodes + inodes
+                 
 def obj(free, obj_show=False):
-    f_torque = obj_Wtorque*h*np.sum(free[torque_indices]**2)
-    f_track = obj_Wtrack*h*np.sum((free[angle_indices] - ang_data)**2)
+    f_torque = 1e-6 * obj_Wtorque * np.sum(free[torque_indices]**2) / torque_indices.size
+    f_track = obj_Wtrack * np.sum((free[angle_indices] - ang_data)**2) / angle_indices.size
     f_total = f_torque + f_track
     if obj_show:
         print(f"   obj: {f_total:.3f} = {f_torque:.3f}(torque) + {f_track:.3f}(track)")
@@ -217,8 +232,8 @@ def obj(free, obj_show=False):
 
 def obj_grad(free):
     grad = np.zeros_like(free)
-    grad[torque_indices] = 2.0*obj_Wtorque*h*free[torque_indices]
-    grad[angle_indices] = 2.0*obj_Wtrack *h*(free[angle_indices] - ang_data)
+    grad[torque_indices] = 2e-6 * obj_Wtorque * free[torque_indices] / torque_indices.size
+    grad[angle_indices] = 2.0*obj_Wtrack * (free[angle_indices] - ang_data) / angle_indices.size
     return grad
 
 
@@ -243,7 +258,9 @@ prob = Problem(
     time_symbol=time_symbol,
 )
 prob.add_option('max_iter', 3000)
-prob.add_option('print_level', 0)
+prob.add_option('tol', 1e-3)
+prob.add_option('constr_viol_tol', 1e-4)
+# prob.add_option('print_level', 0)
 
 
 # %%
@@ -258,7 +275,7 @@ def solve_gait(speed, initial_guess=None):
           f" solving for {speed:.3f} m/s")
     solution, info = prob.solve(initial_guess)
     # we accept solve_succeeded (0) and solved_to_acceptable_level (1)
-    if info['status'] > 1:
+    if info['status'] < 0:
         print("IPOPT was not successful.")
         breakpoint()
 
@@ -269,11 +286,10 @@ def solve_gait(speed, initial_guess=None):
 
 
 # solve for a series of increasing speeds, ending at the required speed
-# initial_guess = None
 for speed in np.linspace(0, walking_speed, 10):
     solution = solve_gait(speed, initial_guess)
-    #initial_guess = solution # use this solution as initial guess for the next problem
-    initial_guess = solution + np.random.normal(scale=0.1, size=len(solution)) # use this solution as initial guess for the next problem
+    initial_guess = solution # use this solution as initial guess for the next problem
+# solution = solve_gait(0.0, initial_guess)
 
 fname = f'human_gait_{num_nodes}_nodes_solution.csv'
 np.savetxt(fname, solution, fmt='%.5f')
@@ -282,14 +298,14 @@ np.savetxt(fname, solution, fmt='%.5f')
 # make plots
 
 # extract angles and torques
-ang = solution[angle_indices].reshape(num_angles, num_nodes).transpose()
-tor = solution[torque_indices].reshape(num_angles, num_nodes).transpose()
-dat = ang_data.reshape(num_angles, num_nodes).transpose()
+ang = solution[angle_indices].reshape(num_angles, num_nodes-1).transpose()
+tor = solution[torque_indices].reshape(num_angles, num_nodes-1).transpose()
+dat = ang_data.reshape(num_angles, num_nodes-1).transpose()
 
 # construct a right side full gait cycle trajectory
-ang = np.rad2deg(np.concatenate((ang[:, 0:3],ang[1:, 3:6]), axis=0))
-tor =            np.concatenate((tor[:, 0:3],tor[1:, 3:6]), axis=0)
-dat = np.rad2deg(np.concatenate((dat[:, 0:3],dat[1:, 3:6]), axis=0))
+ang = np.rad2deg(np.vstack((ang[:, 0:3],ang[:, 3:6],ang[1,0:3])))
+tor =            np.vstack((tor[:, 0:3],tor[:, 3:6],tor[1,0:3]))
+dat = np.rad2deg(np.vstack((dat[:, 0:3],dat[:, 3:6],dat[1,0:3])))
 t = np.arange(2*num_nodes-1) * h
 
 # use Winter's sign convention (knee flexion angle
