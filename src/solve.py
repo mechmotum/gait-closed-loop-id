@@ -13,13 +13,12 @@ from datetime import datetime
 from opty import Problem
 from pygait2d import simulate
 from pygait2d.derive import derive_equations_of_motion
-from pygait2d.segment import time_symbol, contact_force
+from pygait2d.segment import time_symbol, contact_force, time_varying
 from symmeplot.matplotlib import Scene3D
 import matplotlib.pyplot as plt
 from matplotlib.animation import FuncAnimation
 import numpy as np
 import sympy as sm
-from sympy.physics.mechanics import dynamicsymbols
 
 # %%
 # some settings
@@ -91,7 +90,7 @@ def generate_marker_equations(symbolics):
     equations = []
 
     for lab, point in points.items():
-        x, y = dynamicsymbols(f'{lab}x, {lab}y', real=True)
+        x, y = time_varying(f'{lab}x, {lab}y')
         variables += [x, y]
         # TODO : Manage belt speed if that matters.
         x_eq = x - point.pos_from(O).dot(N.x)
