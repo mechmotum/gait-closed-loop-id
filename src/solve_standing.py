@@ -9,9 +9,9 @@ import os
 from opty import Problem
 from opty.utils import f_minus_ma
 from pygait2d import simulate
+from pygait2d.derive import derive_equations_of_motion
 from pygait2d.segment import time_symbol
 import numpy as np
-from derive import derive_equations_of_motion
 
 # %%
 # some settings
@@ -20,17 +20,11 @@ h = 1.0  # time step does not matter, since it is a static equilibrium
 
 # %%
 # Derive the equations of motion
-symbolics = derive_equations_of_motion()
+symbolics = derive_equations_of_motion(prevent_ground_penetration=False,
+                                       treadmill=True)
 
-mass_matrix = symbolics[0]
-forcing_vector = symbolics[1]
-constants = symbolics[3]
-coordinates = symbolics[4]
-speeds = symbolics[5]
-specified = symbolics[6]
-
-eom = f_minus_ma(mass_matrix, forcing_vector, coordinates + speeds)
-states = coordinates + speeds
+eom = symbolics.equations_of_motion
+states = symbolics.states
 num_states = len(states)
 
 # %%
@@ -42,16 +36,16 @@ num_states = len(states)
 # - left: hip (e), knee (f), ankle (g)
 #
 # Each joint has a joint torque acting between the adjacent bodies.
-qax, qay, qa, qb, qc, qd, qe, qf, qg = coordinates
-uax, uay, ua, ub, uc, ud, ue, uf, ug = speeds
-v, Tb, Tc, Td, Te, Tf, Tg            = specified
+qax, qay, qa, qb, qc, qd, qe, qf, qg = symbolics.coordinates
+uax, uay, ua, ub, uc, ud, ue, uf, ug = symbolics.speeds
+Fax, Fay, Ta, Tb, Tc, Td, Te, Tf, Tg, v = symbolics.specifieds
 
 # %%
 # The constants are loaded from a file of realistic geometry, mass, inertia,
 # and foot deformation properties of an adult human.
-par_map = simulate.load_constants(constants,
-                                  os.path.join(os.path.dirname(__file__), '..',
-                                  'data/example_constants.yml'))
+par_map = simulate.load_constants(
+    symbolics.constants, os.path.join(os.path.dirname(__file__), '..',
+                                      'data/example_constants.yml'))
 
 # %%
 # Set belt velocity v(t) to zero
@@ -69,7 +63,7 @@ bounds.update({k: (-0.1, 0.1)
                for k in [qa, qb, qc, qd, qe, qf, qg]})
 # horizontal position and all speeds should be zero
 bounds.update({k: (0.0, 0.0)
-               for k in [qax,uax,uay,ua, ub, uc, ud, ue, uf, ug]})
+               for k in [qax, uax, uay, ua, ub, uc, ud, ue, uf, ug]})
 # joint torques should be small
 bounds.update({k: (-10.0, 10.0)
                for k in [Tb, Tc, Td, Te, Tf, Tg]})
@@ -82,8 +76,11 @@ instance_constraints = None
 # Objective is integral of sum of squared torques
 num_angles = 6
 torque_indices = num_states*num_nodes + np.arange(0, num_angles*num_nodes)
+
+
 def obj(free):
     return np.sum(free[torque_indices]**2)
+
 
 def obj_grad(free):
     grad = np.zeros_like(free)
@@ -119,7 +116,7 @@ initial_guess = (0.5*(prob.lower_bound + prob.upper_bound) +
 solution, info = prob.solve(initial_guess)
 
 # only keep the first node (the second is the same)
-solution = solution[0:-1:2];
+solution = solution[0:-1:2]
 if info['status'] == 0:
     np.savetxt('standing.csv', solution, fmt='%.15f')
 else:
