@@ -13,7 +13,7 @@ from datetime import datetime
 from opty import Problem
 from pygait2d import simulate
 from pygait2d.derive import derive_equations_of_motion
-from pygait2d.segment import time_symbol, contact_force
+from pygait2d.segment import time_symbol, contact_force, time_varying
 from symmeplot.matplotlib import Scene3D
 import matplotlib.pyplot as plt
 from matplotlib.animation import FuncAnimation
@@ -67,6 +67,39 @@ symbolics = derive_equations_of_motion(prevent_ground_penetration=False,
 
 eom = symbolics.equations_of_motion
 
+
+def generate_marker_equations(symbolics):
+
+    O, N = symbolics.origin, symbolics.inertial_frame
+    trunk, rthigh, rshank, rfoot, lthigh, lshank, lfoot = symbolics.segments
+
+    points = {
+        'ank_l': lshank.joint,  # left ankle
+        'ank_r': rshank.joint,  # right ankle
+        'hel_l': lfoot.heel,
+        'hel_r': rfoot.heel,
+        'hip_m': trunk.joint,  # hip
+        'kne_l': lthigh.joint,  # left knee
+        'kne_r': rthigh.joint,  # right knee
+        'toe_l': lfoot.toe,
+        'toe_r': rfoot.toe,
+        'tor_m': trunk.mass_center,
+    }
+
+    variables = []
+    equations = []
+
+    for lab, point in points.items():
+        x, y = time_varying(f'{lab}x, {lab}y')
+        variables += [x, y]
+        # TODO : Manage belt speed if that matters.
+        x_eq = x - point.pos_from(O).dot(N.x)
+        y_eq = y - point.pos_from(O).dot(N.y)
+        equations += [x_eq, y_eq]
+
+    return variables, equations
+
+
 #breakpoint()
 print('Number of operations in eom:', sm.count_ops(eom))
 
@@ -86,6 +119,9 @@ for i in range(9):
 delt = sm.Function('delt', real=True)(time_symbol)
 eom = eom.col_join(sm.Matrix([delt.diff(time_symbol) - 1]))
 
+marker_coords, marker_eqs = generate_marker_equations(symbolics)
+eom = eom.col_join(sm.Matrix(marker_eqs))
+
 states = symbolics.states + [delt]
 num_states = len(states)
 
@@ -101,7 +137,8 @@ standing_state = standing_sol[0:num_states - 1].reshape(-1, 1)  # coordinates an
 state_traj = np.tile(standing_state, (1, num_nodes))  # make num_nodes copies
 delta_traj = h*np.arange(num_nodes).reshape(1, -1)    # row vector
 tor_traj = np.zeros((num_angles, num_nodes))          # intialize torques to zero
-initial_guess = np.concatenate((state_traj, delta_traj, tor_traj))  # complete trajectory
+mar_traj = np.zeros((len(marker_coords), num_nodes))          # intialize torques to zero
+initial_guess = np.concatenate((state_traj, delta_traj, tor_traj, mar_traj))  # complete trajectory
 initial_guess = initial_guess.flatten()               # make a single row vector
 np.random.seed(1)  # this makes the result reproducible
 initial_guess = initial_guess + 0.01*np.random.random_sample(initial_guess.size)
@@ -394,7 +431,7 @@ def animate():
     gait_cycle = np.vstack((
         xs,  # q, u shape(2n, N)
         speed + np.zeros((1, len(times))),  # belt speed shape(1, N)
-        rs,  # r, shape(q, N)
+        rs[:6, :],  # r, shape(q, N)
         np.repeat(np.atleast_2d(np.array(list(par_map.values()))).T,
                   len(times), axis=1),  # p, shape(r, N)
     ))
