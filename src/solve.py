@@ -119,6 +119,9 @@ for i in range(9):
 delt = sm.Function('delt', real=True)(time_symbol)
 eom = eom.col_join(sm.Matrix([delt.diff(time_symbol) - 1]))
 
+marker_coords, marker_eqs = generate_marker_equations(symbolics)
+eom = eom.col_join(sm.Matrix(marker_eqs))
+
 states = symbolics.states + [delt]
 num_states = len(states)
 
@@ -134,7 +137,8 @@ standing_state = standing_sol[0:num_states - 1].reshape(-1, 1)  # coordinates an
 state_traj = np.tile(standing_state, (1, num_nodes))  # make num_nodes copies
 delta_traj = h*np.arange(num_nodes).reshape(1, -1)    # row vector
 tor_traj = np.zeros((num_angles, num_nodes))          # intialize torques to zero
-initial_guess = np.concatenate((state_traj, delta_traj, tor_traj))  # complete trajectory
+mar_traj = np.zeros((len(marker_coords), num_nodes))          # intialize torques to zero
+initial_guess = np.concatenate((state_traj, delta_traj, tor_traj, mar_traj))  # complete trajectory
 initial_guess = initial_guess.flatten()               # make a single row vector
 np.random.seed(1)  # this makes the result reproducible
 initial_guess = initial_guess + 0.01*np.random.random_sample(initial_guess.size)
