@@ -19,6 +19,7 @@ import matplotlib.pyplot as plt
 from matplotlib.animation import FuncAnimation
 import numpy as np
 import sympy as sm
+from sympy.physics.mechanics import dynamicsymbols
 
 # %%
 # some settings
@@ -66,6 +67,39 @@ symbolics = derive_equations_of_motion(prevent_ground_penetration=False,
                                        treadmill=True, hand_of_god=False)
 
 eom = symbolics.equations_of_motion
+
+
+def generate_marker_equations(symbolics):
+
+    O, N = symbolics.origin, symbolics.inertial_frame
+    trunk, rthigh, rshank, rfoot, lthigh, lshank, lfoot = symbolics.segments
+
+    points = {
+        'ank_r': rshank.joint,  # right ankle
+        'toe_r': rfoot.toe,
+        'hel_r': rfoot.heel,
+        'kne_r': rthigh.joint,  # right knee
+        'hip': trunk.joint,  # hip
+        'tor': trunk.mass_center,
+        'kne_l': lthigh.joint,  # left knee
+        'ank_l': lshank.joint,  # left ankle
+        'hel_l': lfoot.heel,
+        'toe_l': lfoot.toe,
+    }
+
+    variables = []
+    equations = []
+
+    for lab, point in points.items():
+        x, y = dynamicsymbols(f'{lab}x, {lab}y', real=True)
+        variables += [x, y]
+        # TODO : Manage belt speed if that matters.
+        x_eq = x - point.pos_from(O).dot(N.x)
+        y_eq = y - point.pos_from(O).dot(N.y)
+        equations += [x_eq, y_eq]
+
+    return variables, equations
+
 
 #breakpoint()
 print('Number of operations in eom:', sm.count_ops(eom))
