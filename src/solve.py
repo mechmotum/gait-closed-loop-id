@@ -24,7 +24,7 @@ import sympy as sm
 # some settings
 make_animation = True
 num_nodes = 50       # number of time nodes for the half period
-genforce_scale = 0.001 # convert to kN and kNm
+genforce_scale = 0.001  # convert to kN and kNm
 eom_scale = 10.0     # scaling factor for eom
 # genforce_scale = 1 # convert to kN and kNm
 # eom_scale = 1     # scaling factor for eom
@@ -200,33 +200,39 @@ instance_constraints = (
 
 # Make indices for the free variables that are angles and torques.
 # The final node is excluded, it is the first node of the next cycle
-angle_indices = np.empty(num_angles * (num_nodes-1), dtype = np.int64)
-inodes = np.arange(0,num_nodes-1)
-for iangle in range (0,num_angles):
+angle_indices = np.empty(num_angles*(num_nodes-1), dtype=np.int64)
+inodes = np.arange(0, num_nodes - 1)
+for iangle in range(0, num_angles):
     # skip the first 3 DOFs and angles before iangle
-    angle_indices[iangle*(num_nodes-1) + inodes] = \
-                  (3+iangle)*num_nodes + inodes
+    angle_indices[iangle*(num_nodes - 1) + inodes] = ((3 + iangle)*num_nodes +
+                                                      inodes)
 
-torque_indices = np.empty(num_angles * (num_nodes-1), dtype = np.int64)
-inodes = np.arange(0,num_nodes-1)
-for itorque in range (0,num_angles):
+torque_indices = np.empty(num_angles*(num_nodes - 1), dtype=np.int64)
+inodes = np.arange(0, num_nodes - 1)
+for itorque in range(0, num_angles):
     # skip the state trajectories, and torques before itorque
-    torque_indices[itorque*(num_nodes-1) + inodes] = \
-                  (num_states+itorque)*num_nodes + inodes
+    torque_indices[itorque*(num_nodes-1) + inodes] = (
+        (num_states+itorque)*num_nodes + inodes)
+
 
 def obj(free, obj_show=False):
-    f_torque = 1e-6 * obj_Wtorque * np.sum(free[torque_indices]**2) / torque_indices.size
-    f_track = obj_Wtrack * np.sum((free[angle_indices] - ang_data)**2) / angle_indices.size
+    f_torque = (1e-6*obj_Wtorque*np.sum(free[torque_indices]**2)/
+                torque_indices.size)
+    f_track = (obj_Wtrack*np.sum((free[angle_indices] - ang_data)**2)/
+               angle_indices.size)
     f_total = f_torque + f_track
     if obj_show:
-        print(f"   obj: {f_total:.3f} = {f_torque:.3f}(torque) + {f_track:.3f}(track)")
+        print(f"   obj: {f_total:.3f} = {f_torque:.3f}(torque) + "
+              f"{f_track:.3f}(track)")
     return f_total
 
 
 def obj_grad(free):
     grad = np.zeros_like(free)
-    grad[torque_indices] = 2e-6 * obj_Wtorque * free[torque_indices] / torque_indices.size
-    grad[angle_indices] = 2.0*obj_Wtrack * (free[angle_indices] - ang_data) / angle_indices.size
+    grad[torque_indices] = (2e-6*obj_Wtorque*free[torque_indices]/
+                            torque_indices.size)
+    grad[angle_indices] = (2.0*obj_Wtrack*(free[angle_indices] - ang_data)/
+                           angle_indices.size)
     return grad
 
 
@@ -283,7 +289,7 @@ def solve_gait(speed, initial_guess=None):
 # solve for a series of increasing speeds, ending at the required speed
 for speed in np.linspace(0, walking_speed, 10):
     solution = solve_gait(speed, initial_guess)
-    initial_guess = solution # use this solution as initial guess for the next problem
+    initial_guess = solution  # use this solution as guess for the next problem
 # solution = solve_gait(0.0, initial_guess)
 
 fname = f'human_gait_{num_nodes}_nodes_solution.csv'
@@ -298,9 +304,9 @@ tor = solution[torque_indices].reshape(num_angles, num_nodes-1).transpose()
 dat = ang_data.reshape(num_angles, num_nodes-1).transpose()
 
 # construct a right side full gait cycle trajectory
-ang = np.rad2deg(np.vstack((ang[:, 0:3],ang[:, 3:6],ang[1,0:3])))
-tor =            np.vstack((tor[:, 0:3],tor[:, 3:6],tor[1,0:3]))
-dat = np.rad2deg(np.vstack((dat[:, 0:3],dat[:, 3:6],dat[1,0:3])))
+ang = np.rad2deg(np.vstack((ang[:, 0:3], ang[:, 3:6], ang[1, 0:3])))
+tor = np.vstack((tor[:, 0:3], tor[:, 3:6], tor[1, 0:3]))
+dat = np.rad2deg(np.vstack((dat[:, 0:3], dat[:, 3:6], dat[1, 0:3])))
 t = np.arange(2*num_nodes-1) * h
 
 # use Winter's sign convention (knee flexion angle
@@ -331,126 +337,125 @@ plt.xlabel('time (s)')
 
 plt.show()
 
+
+def animate():
+
+    ground, origin = symbolics.inertial_frame, symbolics.origin
+    trunk, rthigh, rshank, rfoot, lthigh, lshank, lfoot = symbolics.segments
+
+    fig = plt.figure(figsize=(10.0, 4.0))
+
+    ax3d = fig.add_subplot(1, 2, 1, projection='3d')
+    ax2d = fig.add_subplot(1, 2, 2)
+
+    # hip_proj = origin.locatenew('m', qax*ground.x)
+    # scene = Scene3D(ground, hip_proj, ax=ax3d)
+    scene = Scene3D(ground, origin, ax=ax3d)
+
+    # creates the stick person
+    scene.add_line([
+        rshank.joint,
+        rfoot.toe,
+        rfoot.heel,
+        rshank.joint,
+        rthigh.joint,
+        trunk.joint,
+        trunk.mass_center,
+        trunk.joint,
+        lthigh.joint,
+        lshank.joint,
+        lfoot.heel,
+        lfoot.toe,
+        lshank.joint,
+    ], color="k")
+
+    # creates a moving ground (many points to deal with matplotlib limitation)
+    # ?? can we make the dashed line move to the left?
+    scene.add_line([origin.locatenew('gl', s*ground.x) for s in
+                    np.linspace(-2.0, 2.0)], linestyle='--', color='tab:green',
+                   axlim_clip=True)
+
+    # adds CoM and unit vectors for each body segment
+    for seg in symbolics.segments:
+        scene.add_body(seg.rigid_body)
+
+    # show ground reaction force vectors at the heels and toes, scaled to
+    # visually reasonable length
+    scene.add_vector(contact_force(rfoot.toe, ground, origin, v)/600.0,
+                     rfoot.toe, color="tab:blue")
+    scene.add_vector(contact_force(rfoot.heel, ground, origin, v)/600.0,
+                     rfoot.heel, color="tab:blue")
+    scene.add_vector(contact_force(lfoot.toe, ground, origin, v)/600.0,
+                     lfoot.toe, color="tab:blue")
+    scene.add_vector(contact_force(lfoot.heel, ground, origin, v)/600.0,
+                     lfoot.heel, color="tab:blue")
+
+    scene.lambdify_system(states + symbolics.specifieds + symbolics.constants)
+    gait_cycle = np.vstack((
+        xs,  # q, u shape(2n, N)
+        speed + np.zeros((1, len(times))),  # belt speed shape(1, N)
+        rs,  # r, shape(q, N)
+        np.repeat(np.atleast_2d(np.array(list(par_map.values()))).T,
+                  len(times), axis=1),  # p, shape(r, N)
+    ))
+    scene.evaluate_system(*gait_cycle[:, 0])
+
+    scene.axes.set_proj_type("ortho")
+    scene.axes.view_init(90, -90, 0)
+    scene.plot(prettify=False)
+
+    ax3d.set_xlim((-0.8, 0.8))
+    ax3d.set_ylim((-0.2, 1.4))
+    ax3d.set_aspect('equal')
+    for axis in (ax3d.xaxis, ax3d.yaxis, ax3d.zaxis):
+        axis.set_ticklabels([])
+        axis.set_ticks_position("none")
+
+    eval_rforce = sm.lambdify(
+        states + symbolics.specifieds + symbolics.constants,
+        (contact_force(rfoot.toe, ground, origin, v) +
+            contact_force(rfoot.heel, ground, origin, v)).to_matrix(ground),
+        cse=True)
+
+    eval_lforce = sm.lambdify(
+        states + symbolics.specifieds + symbolics.constants,
+        (contact_force(lfoot.toe, ground, origin, v) +
+            contact_force(lfoot.heel, ground, origin, v)).to_matrix(ground),
+        cse=True)
+
+    rforces = np.array([eval_rforce(*gci).squeeze() for gci in gait_cycle.T])
+    lforces = np.array([eval_lforce(*gci).squeeze() for gci in gait_cycle.T])
+
+    ax2d.plot(times, rforces[:, :2], times, lforces[:, :2])
+    ax2d.grid()
+    ax2d.set_ylabel('Force [N]')
+    ax2d.set_xlabel('Time [s]')
+    ax2d.legend(['Horizontal GRF (r)', 'Vertical GRF (r)',
+                 'Horizontal GRF (l)', 'Vertical GRF (l)'], loc='upper right')
+    ax2d.set_title('Foot Ground Reaction Force Components')
+    vline = ax2d.axvline(times[0], color='black')
+
+    def update(i):
+        scene.evaluate_system(*gait_cycle[:, i])
+        scene.update()
+        vline.set_xdata([times[i], times[i]])
+        return scene.artists + (vline,)
+
+    ani = FuncAnimation(
+        fig,
+        update,
+        frames=range(len(times)),
+        interval=h*1000,
+    )
+
+    return ani
+
+
 # %%
 # Use symmeplot to make an animation of the motion.
 if make_animation:
     xs, rs, _ = prob.parse_free(solution)
     times = np.linspace(0.0, (num_nodes - 1)*h, num=num_nodes)
-
-
-    def animate():
-
-        ground, origin = symbolics.inertial_frame, symbolics.origin
-        trunk, rthigh, rshank, rfoot, lthigh, lshank, lfoot = symbolics.segments
-
-        fig = plt.figure(figsize=(10.0, 4.0))
-
-        ax3d = fig.add_subplot(1, 2, 1, projection='3d')
-        ax2d = fig.add_subplot(1, 2, 2)
-
-        # hip_proj = origin.locatenew('m', qax*ground.x)
-        # scene = Scene3D(ground, hip_proj, ax=ax3d)
-        scene = Scene3D(ground, origin, ax=ax3d)
-
-        # creates the stick person
-        scene.add_line([
-            rshank.joint,
-            rfoot.toe,
-            rfoot.heel,
-            rshank.joint,
-            rthigh.joint,
-            trunk.joint,
-            trunk.mass_center,
-            trunk.joint,
-            lthigh.joint,
-            lshank.joint,
-            lfoot.heel,
-            lfoot.toe,
-            lshank.joint,
-        ], color="k")
-
-        # creates a moving ground (many points to deal with matplotlib limitation)
-        # ?? can we make the dashed line move to the left?
-        scene.add_line([origin.locatenew('gl', s*ground.x) for s in
-                        np.linspace(-2.0, 2.0)], linestyle='--', color='tab:green',
-                       axlim_clip=True)
-
-        # adds CoM and unit vectors for each body segment
-        for seg in symbolics.segments:
-            scene.add_body(seg.rigid_body)
-
-        # show ground reaction force vectors at the heels and toes, scaled to
-        # visually reasonable length
-        scene.add_vector(contact_force(rfoot.toe, ground, origin, v)/600.0,
-                         rfoot.toe, color="tab:blue")
-        scene.add_vector(contact_force(rfoot.heel, ground, origin, v)/600.0,
-                         rfoot.heel, color="tab:blue")
-        scene.add_vector(contact_force(lfoot.toe, ground, origin, v)/600.0,
-                         lfoot.toe, color="tab:blue")
-        scene.add_vector(contact_force(lfoot.heel, ground, origin, v)/600.0,
-                         lfoot.heel, color="tab:blue")
-
-        scene.lambdify_system(states + symbolics.specifieds +
-                              symbolics.constants)
-        gait_cycle = np.vstack((
-            xs,  # q, u shape(2n, N)
-            speed + np.zeros((1, len(times))),  # belt speed shape(1, N)
-            rs,  # r, shape(q, N)
-            np.repeat(np.atleast_2d(np.array(list(par_map.values()))).T,
-                      len(times), axis=1),  # p, shape(r, N)
-        ))
-        scene.evaluate_system(*gait_cycle[:, 0])
-
-        scene.axes.set_proj_type("ortho")
-        scene.axes.view_init(90, -90, 0)
-        scene.plot(prettify=False)
-
-        ax3d.set_xlim((-0.8, 0.8))
-        ax3d.set_ylim((-0.2, 1.4))
-        ax3d.set_aspect('equal')
-        for axis in (ax3d.xaxis, ax3d.yaxis, ax3d.zaxis):
-            axis.set_ticklabels([])
-            axis.set_ticks_position("none")
-
-        eval_rforce = sm.lambdify(
-            states + symbolics.specifieds + symbolics.constants,
-            (contact_force(rfoot.toe, ground, origin, v) +
-             contact_force(rfoot.heel, ground, origin, v)).to_matrix(ground),
-            cse=True)
-
-        eval_lforce = sm.lambdify(
-            states + symbolics.specifieds + symbolics.constants,
-            (contact_force(lfoot.toe, ground, origin, v) +
-             contact_force(lfoot.heel, ground, origin, v)).to_matrix(ground),
-            cse=True)
-
-        rforces = np.array([eval_rforce(*gci).squeeze() for gci in gait_cycle.T])
-        lforces = np.array([eval_lforce(*gci).squeeze() for gci in gait_cycle.T])
-
-        ax2d.plot(times, rforces[:, :2], times, lforces[:, :2])
-        ax2d.grid()
-        ax2d.set_ylabel('Force [N]')
-        ax2d.set_xlabel('Time [s]')
-        ax2d.legend(['Horizontal GRF (r)', 'Vertical GRF (r)',
-                     'Horizontal GRF (l)', 'Vertical GRF (l)'], loc='upper right')
-        ax2d.set_title('Foot Ground Reaction Force Components')
-        vline = ax2d.axvline(times[0], color='black')
-
-        def update(i):
-            scene.evaluate_system(*gait_cycle[:, i])
-            scene.update()
-            vline.set_xdata([times[i], times[i]])
-            return scene.artists + (vline,)
-
-        ani = FuncAnimation(
-            fig,
-            update,
-            frames=range(len(times)),
-            interval=h*1000,
-        )
-
-        return ani
-
 
     animation = animate()
 
