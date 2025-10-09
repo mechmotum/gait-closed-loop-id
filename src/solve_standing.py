@@ -7,7 +7,6 @@
 # Import all necessary modules, functions, and classes:
 import os
 from opty import Problem
-from opty.utils import f_minus_ma
 from pygait2d import simulate
 from pygait2d.derive import derive_equations_of_motion
 from pygait2d.segment import time_symbol
@@ -21,7 +20,7 @@ h = 1.0  # time step does not matter, since it is a static equilibrium
 # %%
 # Derive the equations of motion
 symbolics = derive_equations_of_motion(prevent_ground_penetration=False,
-                                       treadmill=True)
+                                       treadmill=True, hand_of_god=False)
 
 eom = symbolics.equations_of_motion
 states = symbolics.states
@@ -38,7 +37,7 @@ num_states = len(states)
 # Each joint has a joint torque acting between the adjacent bodies.
 qax, qay, qa, qb, qc, qd, qe, qf, qg = symbolics.coordinates
 uax, uay, ua, ub, uc, ud, ue, uf, ug = symbolics.speeds
-Fax, Fay, Ta, Tb, Tc, Td, Te, Tf, Tg, v = symbolics.specifieds
+Tb, Tc, Td, Te, Tf, Tg, v = symbolics.specifieds
 
 # %%
 # The constants are loaded from a file of realistic geometry, mass, inertia,
@@ -103,7 +102,6 @@ prob = Problem(
     instance_constraints=instance_constraints,
     bounds=bounds,
     time_symbol=time_symbol,
-    parallel=True,
 )
 prob.add_option('max_iter', 3000)
 
