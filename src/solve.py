@@ -37,7 +37,7 @@ obj_Wtrack = 100      # weight of tracking objective
 if os.path.exists(DATAPATH):
     # load a gait cycle from our data (trial 20)
     duration, walking_speed, num_angles, ang_data = load_sample_data(
-        num_nodes, gait_cycle_number=2)
+        num_nodes, gait_cycle_number=0)
 else:
     # load normal gait data from Winter's book
     duration, walking_speed, num_angles, ang_data = load_winter_data(num_nodes)

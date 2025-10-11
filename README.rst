@@ -34,6 +34,19 @@ Change back into the project repository::
 
    cd ../gait-closed-loop-id
 
+Data
+====
+
+There is sample data in the ``data/`` directory for tracking but you can use
+data we collected by downloading this `sample file
+<https://drive.google.com/file/d/1rsBbDih0fqa8v14fmY7__Ss01eaY7Ol9/view?usp=sharing>`_
+[16Mb], unzipping it, and placing the CSV file into the ``data/`` directory.
+This is sample data from trial 20 from:
+
+Moore JK, Hnat SK, van den Bogert AJ. 2015. An elaborate data set on human gait
+and the effect of mechanical perturbations. PeerJ 3:e918
+https://doi.org/10.7717/peerj.918
+
 Run
 ===
 
