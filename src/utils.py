@@ -50,6 +50,7 @@ import os
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
+from scipy.interpolate import interp1d
 
 DATAFILE = '020-longitudinal-perturbation-gait-cycles.csv'
 DATAPATH = os.path.join(os.path.dirname(__file__), '..', 'data', DATAFILE)
@@ -151,6 +152,37 @@ def load_winter_data(num_nodes):
     ang_data = ang_resampled.transpose().flatten()
 
     return duration, walking_speed, num_angles, ang_data
+
+
+def load_sample_data(num_nodes, gait_cycle_number=100):
+    master_df = pd.read_csv(DATAPATH)
+    df = extract_gait_cycle(master_df, gait_cycle_number)
+
+    df = df.iloc[:11, :]  # take 0% to 50%
+
+    time = df['Original Time'].values
+    time -= time[0]
+    duration = time[-1] - time[0]  # 0% to 50% duration
+
+    walking_speed = 1.2  # nominal speed from trial 20 meta data
+
+    angles = [
+        'Right.Hip.Flexion.Angle',
+        'Right.Knee.Flexion.Angle',
+        'Right.Ankle.PlantarFlexion.Angle',
+        'Left.Hip.Flexion.Angle',
+        'Left.Knee.Flexion.Angle',
+        'Left.Ankle.PlantarFlexion.Angle',
+    ]
+    ang_arr = -df[angles].values  # change to extension (knee and ankle)
+
+    ang_arr[:, [0, 3]] *= -1  # change hip back to flexion
+    ang_arr[:, [2, 5]] -= np.pi/2
+
+    new_time = np.linspace(0.0, duration, num=num_nodes - 1)
+    interp_ang_arr = interp1d(time, ang_arr, axis=0)(new_time)
+
+    return duration, walking_speed, len(angles), interp_ang_arr.T.flatten()
 
 
 if __name__ == "__main__":

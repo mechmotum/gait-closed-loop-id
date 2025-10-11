@@ -21,7 +21,7 @@ from matplotlib.animation import FuncAnimation
 import numpy as np
 import sympy as sm
 
-from utils import load_winter_data
+from utils import load_winter_data, load_sample_data, DATAPATH
 
 # %%
 # some settings
@@ -34,8 +34,13 @@ eom_scale = 10.0     # scaling factor for eom
 obj_Wtorque = 100   # weight of torque objective
 obj_Wtrack = 100      # weight of tracking objective
 
-# load normal gait data from Winter's book
-duration, walking_speed, num_angles, ang_data = load_winter_data(num_nodes)
+if os.path.exists(DATAPATH):
+    # load a gait cycle from our data (trial 20)
+    duration, walking_speed, num_angles, ang_data = load_sample_data(
+        num_nodes, gait_cycle_number=430)
+else:
+    # load normal gait data from Winter's book
+    duration, walking_speed, num_angles, ang_data = load_winter_data(num_nodes)
 
 h = duration/(num_nodes - 1)
 
