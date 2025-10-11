@@ -8,6 +8,7 @@ dependencies:
   - ipython
   - matplotlib
   - numpy
+  - pandas
   - pip
   - pydy
   - python

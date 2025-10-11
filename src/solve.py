@@ -10,6 +10,7 @@
 # Import all necessary modules, functions, and classes:
 import os
 from datetime import datetime
+
 from opty import Problem
 from pygait2d import simulate
 from pygait2d.derive import derive_equations_of_motion
@@ -19,6 +20,8 @@ import matplotlib.pyplot as plt
 from matplotlib.animation import FuncAnimation
 import numpy as np
 import sympy as sm
+
+from utils import load_winter_data
 
 # %%
 # some settings
@@ -32,32 +35,9 @@ obj_Wtorque = 100   # weight of torque objective
 obj_Wtrack = 100      # weight of tracking objective
 
 # load normal gait data from Winter's book
-fname = os.path.join(os.path.dirname(__file__),
-                     os.path.join('..', 'data', 'Winter_normal.csv'))
-data = np.genfromtxt(fname, delimiter=',')
+duration, walking_speed, num_angles, ang_data = load_winter_data(num_nodes)
 
-# extract gait cycle duration and speed
-duration = data[1, 2]/2  # half gait cycle duration
 h = duration/(num_nodes - 1)
-walking_speed = data[2, 2]
-
-# extract  hip, knee, ankle angle (full gait cycle)
-ang = np.deg2rad(data[6:57, 4:7])
-# invert Winter's knee angle, to be compatible with our model
-ang[:, 1] = -ang[:, 1]
-
-# convert full gait cycle (one side) into a half gait cycle for both sides and
-# resample to num_nodes
-ang = np.concatenate((ang[:26, :], ang[25:, :]), axis=1)
-rows, num_angles = ang.shape
-ang_resampled = np.zeros((num_nodes-1, num_angles))
-t = np.arange(0, rows)/(rows-1)  # gait phase from data
-t_new = np.arange(0, num_nodes-1)/(num_nodes-1)  # gait phase for simulation
-for i in range(0, num_angles):
-    ang_resampled[:, i] = np.interp(t_new, t, ang[:, i])
-
-# store the angle trajectories in a 1d array, for tracking
-ang_data = ang_resampled.transpose().flatten()
 
 # %%
 # Derive the equations of motion
