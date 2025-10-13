@@ -21,7 +21,8 @@ from matplotlib.animation import FuncAnimation
 import numpy as np
 import sympy as sm
 
-from utils import load_winter_data, load_sample_data, DATAPATH
+from utils import (load_winter_data, load_sample_data, DATAPATH,
+                   plot_joint_comparison)
 
 # %%
 # some settings
@@ -176,7 +177,6 @@ instance_constraints = (
     Te.func(0*h) - Tb.func(duration),
     Tf.func(0*h) - Tc.func(duration),
     Tg.func(0*h) - Td.func(duration),
-
 )
 
 
@@ -227,7 +227,7 @@ print(datetime.now().strftime("%H:%M:%S") + " creating the opty problem")
 
 # Create a belt velocity signal v(t)
 traj_map = {
-    v: np.zeros(num_nodes),
+    v: walking_speed*np.ones(num_nodes),
 }
 
 prob = Problem(
@@ -299,26 +299,8 @@ t = np.arange(2*num_nodes-1) * h
 ang[:, 1] = -ang[:, 1]
 dat[:, 1] = -dat[:, 1]
 tor[:, [0, 2]] = -tor[:, [0, 2]]
-anglabels = ('hip flexion', 'knee flexion', 'ankle dorsiflexion')
-torlabels = ('hip extension', 'knee extension', 'ankle plantarflexion')
 
-# plot
-plt.figure(figsize=(6.0, 9.0))
-colors = ('r', 'b', 'g')
-
-plt.subplot(2, 1, 1)
-for i in range(3):
-    plt.plot(t, ang[:, i], colors[i], label=anglabels[i])
-    plt.plot(t, dat[:, i], colors[i]+'--')
-plt.legend()
-plt.ylabel('angle (deg)')
-
-plt.subplot(2, 1, 2)
-for i in range(3):
-    plt.plot(t, tor[:, i], colors[i], label=torlabels[i])
-plt.legend()
-plt.ylabel('torque (Nm)')
-plt.xlabel('time (s)')
+plot_joint_comparison(t, ang, tor, dat)
 
 plt.show()
 

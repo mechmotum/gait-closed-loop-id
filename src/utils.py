@@ -185,6 +185,46 @@ def load_sample_data(num_nodes, gait_cycle_number=100):
     return duration, walking_speed, len(angles), interp_ang_arr.T.flatten()
 
 
+def plot_joint_comparison(t, angles, torques, angles_meas):
+    """
+    Parameters
+    ==========
+    t : array_like, shape(N, )
+        Time in seconds.
+    angles : array_like, shape(N, 3)
+        hip flexion, knee flexion, ankle dorsiflexion
+    torques : array_like, shape(N, 3)
+        hip extension, knee extension, ankle plantarflexion
+    angles_meas : array_like, shape(N, 3)
+        hip flexion, knee flexion, ankle dorsiflexion
+
+    Returns
+    =======
+    axes : shape(2,)
+
+    """
+    fig, axes = plt.subplots(2, 1, figsize=(6.0, 9.0))
+    colors = ('C0', 'C1', 'C2')
+
+    anglabels = ('hip flexion', 'knee flexion', 'ankle dorsiflexion')
+    for ang, ang_meas, color, lab in zip(angles.T, angles_meas.T, colors,
+                                         anglabels):
+        axes[0].plot(t, ang, color=color, label=lab)
+        axes[0].plot(t, ang_meas, color=color, linestyle='--',
+                     label=lab + ' measured')
+    axes[0].legend()
+    axes[0].set_ylabel('Angle [deg]')
+
+    torlabels = ('hip extension', 'knee extension', 'ankle plantarflexion')
+    for tor, color, lab in zip(torques.T, colors, torlabels):
+        axes[1].plot(t, tor, color=color, label=lab)
+    axes[1].legend()
+    axes[1].set_ylabel('Torque [Nm]')
+    axes[1].set_xlabel('Time [s]')
+
+    return axes
+
+
 if __name__ == "__main__":
     master_df = pd.read_csv(DATAPATH)
     df = extract_gait_cycle(master_df, 100)
