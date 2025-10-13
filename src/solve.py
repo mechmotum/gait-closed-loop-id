@@ -61,18 +61,7 @@ eom = eom_scale * eom
 for i in range(9):
     eom[9+i] = genforce_scale * eom[9+i]
 
-# %%
-# Create a state variable "delt" which is equal to time, for use in controller
-# and/or instance constraints.
-#
-# .. math::
-#
-#    \Delta_t(t) = \int_{t_0}^{t} d\tau
-#
-delt = sm.Function('delt', real=True)(time_symbol)
-eom = eom.col_join(sm.Matrix([delt.diff(time_symbol) - 1]))
-
-states = symbolics.states + [delt]
+states = symbolics.states
 num_states = len(states)
 
 # %%
@@ -120,7 +109,6 @@ par_map = simulate.load_constants(
 # - Only let the hip, knee, and ankle flex and extend to realistic limits.
 # - Put a maximum on the peak torque values.
 bounds = {
-    delt: (0.0, 2.0),
     qax: (-1.0, 1.0),
     qay: (0.5, 1.5),
     qa: np.deg2rad((-60.0, 60.0)),
@@ -149,7 +137,6 @@ bounds.update({k: (-1000.0, 1000.0)
 # goes for the joint angular rates.
 #
 instance_constraints = (
-    delt.func(0*h) - 0.0,
     qax.func(0*h) - 0.0,
     qax.func(duration) - 0.0,
     qay.func(0*h) - qay.func(duration),
@@ -178,7 +165,6 @@ instance_constraints = (
     Tf.func(0*h) - Tc.func(duration),
     Tg.func(0*h) - Td.func(duration),
 )
-
 
 # %%
 # The objective is a combination of squared torques and squared tracking errors
@@ -254,7 +240,7 @@ prob.add_option('constr_viol_tol', 1e-4)
 def solve_gait(speed, initial_guess=None):
 
     # change the belt speed signal
-    traj_map[v] = speed + np.zeros(num_nodes)
+    traj_map[v] = speed*np.ones(num_nodes)
 
     # solve
     print(datetime.now().strftime("%H:%M:%S") +
@@ -272,13 +258,9 @@ def solve_gait(speed, initial_guess=None):
 
 
 # solve for a series of increasing speeds, ending at the required speed
-for speed in np.linspace(0, walking_speed, 10):
+for speed in np.linspace(0.0, walking_speed, num=10):
     solution = solve_gait(speed, initial_guess)
     initial_guess = solution  # use this solution as guess for the next problem
-# solution = solve_gait(0.0, initial_guess)
-
-fname = f'human_gait_{num_nodes}_nodes_solution.csv'
-np.savetxt(fname, solution, fmt='%.5f')
 
 # %%
 # make plots
