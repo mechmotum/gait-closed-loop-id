@@ -53,6 +53,8 @@ fyg: -0.07  # local y location of heel and toe relative to ankle joint [m]
 kc: 5.0e+7  # ground contact stiffness, N/m^3
 cc: 0.85 # ground contact damping, s/m
 mu: 1.0  # friction coefficient
-vs: 0.01 # velocity constant (m/s), for |ve| : vc -> |fx| : 0.4621*c*fy
+# NOTE : vs is 0.01 in Ton's original Autolev model, adjusting for faster
+# solving here.
+vs: 0.1 # velocity constant (m/s), for |ve| : vc -> |fx| : 0.4621*c*fy
 # other
 g: 9.81 # acceleration due to gravity, m/s^2
