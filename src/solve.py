@@ -237,6 +237,7 @@ for iangle in range(0, num_angles):
     # skip the first 3 DOFs and angles before iangle
     angle_indices[iangle*(num_nodes - 1) + inodes] = ((3 + iangle)*num_nodes +
                                                       inodes)
+for itorque in range(0, num_torques):
     # skip the state trajectories, and torques before itorque
     torque_indices[itorque*(num_nodes-1) + inodes] = (
         (num_states+itorque)*num_nodes + inodes)
