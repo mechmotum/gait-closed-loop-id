@@ -233,8 +233,11 @@ def obj(prob, free, obj_show=False):
     for var, lab in zip((ank_lx, ank_ly, ank_rx, ank_ry),
                         ('LLM.PosX', 'LLM.PosY', 'RLM.PosX', 'RLM.PosY')):
         vals = prob.extract_values(var, free)
-        # exclude final node
-        f_marker_track += obj_Wtrack*np.sum(vals[:-1] - meas[lab].values)**2
+        # we only return 49 nodes from measured, so add first to last
+        meas_vals = np.hstack((meas[lab].values, meas[lab].values[0]))
+        # TODO : Ton divides the whole angle track by num_angles*num_nodes,
+        # need to combine this division for angle and marker track.
+        f_marker_track += obj_Wtrack*np.sum(vals - meas_vals)**2/len(vals)/4
 
     f_total = f_torque + f_track + f_marker_track
     if obj_show:
@@ -253,9 +256,8 @@ def obj_grad(prob, free):
     for var, lab in zip((ank_lx, ank_ly, ank_rx, ank_ry),
                         ('LLM.PosX', 'LLM.PosY', 'RLM.PosX', 'RLM.PosY')):
         vals = prob.extract_values(var, free)
-        prob.fill_free(
-            grad, var, np.hstack((2.0*obj_Wtrack*(vals[:-1] - meas[lab].values),
-                                  0.0)))
+        meas_vals = np.hstack((meas[lab].values, meas[lab].values[0]))
+        prob.fill_free(grad, var, 2.0*obj_Wtrack*(vals - meas_vals)/len(vals)/4)
 
     return grad
 
