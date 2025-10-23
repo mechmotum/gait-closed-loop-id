@@ -1,7 +1,10 @@
+import os
+
 import numpy as np
 import matplotlib.pyplot as plt
 
 DATAFILE = '020-longitudinal-perturbation-gait-cycles.csv'
+DATAPATH = os.path.join(os.path.dirname(__file__), '..', 'data', DATAFILE)
 
 """
 
@@ -265,7 +268,7 @@ percent gait cycle for a single gait cycle along with the belt speed.
 
 idxs = [222, 223, 189, 190, 192, 193, 194, 195, 196, 197, 207, 208, 209, 210,
         211, 212]
-arr = np.loadtxt(DATAFILE, skiprows=1, delimiter=',')
+arr = np.loadtxt(DATAPATH, skiprows=1, delimiter=',')
 get_cycle = lambda i: arr[i*20:(i + 1)*20, idxs]
 cycle = get_cycle(100)
 
