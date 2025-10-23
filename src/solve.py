@@ -342,6 +342,26 @@ plot_joint_comparison(t, ang, tor, dat)
 plt.show()
 
 
+def plot_ankle():
+    fig, ax = plt.subplots()
+    ax.plot(prob.extract_values(ank_lx, solution),
+            prob.extract_values(ank_ly, solution), color='C0',
+            label='Model, Left')
+    ax.plot(meas['LLM.PosX'], meas['LLM.PosY'], color='C0', linestyle='--',
+            label='Data, Left')
+    ax.plot(prob.extract_values(ank_rx, solution),
+            prob.extract_values(ank_ry, solution), color='C1',
+            label='Model, Right')
+    ax.plot(meas['RLM.PosX'], meas['RLM.PosY'], color='C1', linestyle='--',
+            label='Data, Right')
+    ax.set_aspect("equal")
+    ax.legend()
+    return ax
+
+
+plot_ankle()
+
+
 def animate():
 
     ground, origin = symbolics.inertial_frame, symbolics.origin
