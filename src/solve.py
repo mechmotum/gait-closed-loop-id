@@ -37,8 +37,8 @@ obj_Wtrack = 100      # weight of tracking objective
 
 if os.path.exists(DATAPATH):
     # load a gait cycle from our data (trial 20)
-    duration, walking_speed, num_angles, ang_data = load_sample_data(
-        num_nodes, gait_cycle_number=0)
+    duration, walking_speed, num_angles, ang_data, meas = load_sample_data(
+        num_nodes, gait_cycle_number=0, include_markers=True)
 else:
     # load normal gait data from Winter's book
     duration, walking_speed, num_angles, ang_data = load_winter_data(num_nodes)
@@ -233,7 +233,8 @@ def obj(prob, free, obj_show=False):
     for var, lab in zip((ank_lx, ank_ly, ank_rx, ank_ry),
                         ('LLM.PosX', 'LLM.PosY', 'RLM.PosX', 'RLM.PosY')):
         vals = prob.extract_values(var, free)
-        f_marker_track += obj_Wtrack*np.sum(vals - meas[lab])**2
+        # exclude final node
+        f_marker_track += obj_Wtrack*np.sum(vals[:-1] - meas[lab].values)**2
 
     f_total = f_torque + f_track + f_marker_track
     if obj_show:
@@ -252,7 +253,9 @@ def obj_grad(prob, free):
     for var, lab in zip((ank_lx, ank_ly, ank_rx, ank_ry),
                         ('LLM.PosX', 'LLM.PosY', 'RLM.PosX', 'RLM.PosY')):
         vals = prob.extract_values(var, free)
-        prob.fill_free(grad, var, 2.0*obj_Wtrack(vals - meas[lab]))
+        prob.fill_free(
+            grad, var, np.hstack((2.0*obj_Wtrack*(vals[:-1] - meas[lab].values),
+                                  0.0)))
 
     return grad
 
@@ -302,7 +305,7 @@ def solve_gait(speed, initial_guess=None):
         #breakpoint()
 
     # show the final objective function value and its contributions
-    obj(solution, obj_show=True)
+    obj(prob, solution, obj_show=True)
 
     return solution
 

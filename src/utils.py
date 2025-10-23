@@ -154,7 +154,7 @@ def load_winter_data(num_nodes):
     return duration, walking_speed, num_angles, ang_data
 
 
-def load_sample_data(num_nodes, gait_cycle_number=100):
+def load_sample_data(num_nodes, gait_cycle_number=100, include_markers=False):
     master_df = pd.read_csv(DATAPATH)
     df = extract_gait_cycle(master_df, gait_cycle_number)
 
@@ -179,10 +179,25 @@ def load_sample_data(num_nodes, gait_cycle_number=100):
     ang_arr[:, [0, 3]] *= -1  # change hip back to flexion
     ang_arr[:, [2, 5]] -= np.pi/2
 
+    markers = [
+        'LLM.PosX',
+        'LLM.PosY',
+        'RLM.PosX',
+        'RLM.PosY',
+    ]
+    marker_vals = df[markers].values
+
     new_time = np.linspace(0.0, duration, num=num_nodes - 1)
     interp_ang_arr = interp1d(time, ang_arr, axis=0)(new_time)
+    interp_mark_arr = interp1d(time, marker_vals, axis=0)(new_time)
 
-    return duration, walking_speed, len(angles), interp_ang_arr.T.flatten()
+    mark_df = pd.DataFrame(dict(zip(markers, interp_mark_arr.T)))
+
+    if include_markers:
+        return (duration, walking_speed, len(angles),
+                interp_ang_arr.T.flatten(), mark_df)
+    else:
+        return duration, walking_speed, len(angles), interp_ang_arr.T.flatten()
 
 
 def plot_joint_comparison(t, angles, torques, angles_meas):
