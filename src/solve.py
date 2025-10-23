@@ -39,8 +39,8 @@ num_nodes = 50       # number of time nodes for the half period
 genforce_scale = 0.001  # convert to kN and kNm
 eom_scale = 10.0     # scaling factor for eom
 obj_Wtorque = 100   # weight of the mean squared torque (in kNm) objective
-obj_Wtrack = 100    # weight of the mean squared angle tracking error (in rad)
-obj_Wreg = 0.001    # weight of the mean squared time derivatives (for regularization)
+obj_Wtrack = 100  # weight of the mean squared angle tracking error (in rad)
+obj_Wreg = 0.00000001  # weight of the mean squared time derivatives (for regularization)
 TRACK_MARKERS = True
 GAIT_CYCLE_NUM = 45
 
@@ -101,6 +101,7 @@ eom = eom_scale * eom
 for i in range(9):
     eom[9+i] = genforce_scale * eom[9+i]
 
+# TODO : Should the marker equations be scaled like above?
 if TRACK_MARKERS:
     marker_coords, marker_eqs = generate_marker_equations(symbolics)
     ank_lx, ank_ly, ank_rx, ank_ry = marker_coords
@@ -120,13 +121,16 @@ if not os.path.exists(fname):
     # executes standing solution and generates 'standing.csv'
     import solve_standing  # this works, but probably not good python style
 standing_sol = np.loadtxt(fname)
-standing_state = standing_sol[0:num_states - 1].reshape(-1, 1)  # coordinates and speeds as column vector
+standing_state = standing_sol[0:num_states].reshape(-1, 1)  # coordinates and speeds as column vector
 state_traj = np.tile(standing_state, (1, num_nodes))  # make num_nodes copies
-delta_traj = h*np.arange(num_nodes).reshape(1, -1)    # row vector
-tor_traj = np.zeros((num_angles, num_nodes))          # intialize torques to zero
-mar_traj = np.zeros((len(marker_coords), num_nodes))          # intialize torques to zero
-initial_guess = np.concatenate((state_traj, delta_traj, tor_traj, mar_traj))  # complete trajectory
-initial_guess = initial_guess.flatten()               # make a single row vector
+tor_traj = np.zeros((num_angles, num_nodes))  # intialize torques to zero
+initial_guess = np.concatenate((state_traj, tor_traj))  # complete trajectory
+if TRACK_MARKERS:
+    # TODO : The marker positions could be calculated from the generalized
+    # coordinates.
+    mar_traj = np.zeros((len(marker_coords), num_nodes))
+    initial_guess = np.concatenate((initial_guess, mar_traj))
+initial_guess = initial_guess.flatten()  # make a single row vector
 np.random.seed(1)  # this makes the result reproducible
 initial_guess = initial_guess + 0.01*np.random.random_sample(initial_guess.size)
 
@@ -186,8 +190,7 @@ bounds.update({k: (-1000.0, 1000.0)
 # goes for the joint angular rates.
 #
 instance_constraints = (
-    qax.func(0*h) - 0.0,
-    qax.func(duration) - 0.0,
+    qax.func(0*h) - qax.func(duration),
     qay.func(0*h) - qay.func(duration),
     qa.func(0*h) - qa.func(duration),
     qb.func(0*h) - qe.func(duration),
@@ -258,9 +261,10 @@ def obj(prob, free, obj_show=False):
     # regularization cost is the mean of squared time derivatives of all variables
     f_reg = (obj_Wreg*np.sum((free[reg_indices+1]-free[reg_indices])**2)/
              reg_indices.size/h**2)
-    f_total = f_torque + f_track# + f_reg
+    f_total = f_torque + f_track + f_reg
 
     if TRACK_MARKERS:
+        f_marker_track = 0.0
         for var, lab in zip((ank_lx, ank_ly, ank_rx, ank_ry),
                             ('LLM.PosX', 'LLM.PosY', 'RLM.PosX', 'RLM.PosY')):
             vals = prob.extract_values(var, free)
@@ -273,12 +277,16 @@ def obj(prob, free, obj_show=False):
                 meas_vals = meas_vals - 0.04
             # TODO : Ton divides the whole angle track by num_angles*num_nodes,
             # need to combine this division for angle and marker track.
-            f_total += (obj_Wtrack*np.sum((vals - meas_vals)**2)/len(vals)/
-                        len(marker_coords))
+            f_marker_track += (obj_Wtrack*np.sum((vals - meas_vals)**2)/
+                               len(vals)/len(marker_coords))
+        f_total += f_marker_track
 
     if obj_show:
-        print(f"   obj: {f_total:.3f} = {f_torque:.3f}(torque) + "
-              f"{f_track:.3f}(track)")
+        msg = (f"   obj: {f_total:.3f} = {f_torque:.3f}(torque) + "
+               f"{f_track:.3f}(track) + {f_reg:.3f}(reg)")
+        if TRACK_MARKERS:
+            msg += f" + {f_marker_track:.3f}(marker)"
+        print(msg)
 
     return f_total
 
@@ -289,10 +297,10 @@ def obj_grad(prob, free):
                             torque_indices.size)
     grad[angle_indices] = (2.0*obj_Wtrack*(free[angle_indices] - ang_data)/
                            angle_indices.size)
-    #grad[reg_indices] = grad[reg_indices] + (2.0*obj_Wreg*(free[reg_indices+1]-free[reg_indices])/
-                            #reg_indices.size/h**2)
-    #grad[reg_indices+1] = grad[reg_indices+1] + (2.0*obj_Wreg*(free[reg_indices+1]-free[reg_indices])/
-                            #reg_indices.size/h**2)
+    grad[reg_indices] = grad[reg_indices] + (2.0*obj_Wreg*(free[reg_indices+1]-free[reg_indices])/
+                            reg_indices.size/h**2)
+    grad[reg_indices+1] = grad[reg_indices+1] + (2.0*obj_Wreg*(free[reg_indices+1]-free[reg_indices])/
+                            reg_indices.size/h**2)
     # the regularization gradient could be coded more efficiently, but probably not worth doing
 
     if TRACK_MARKERS:
