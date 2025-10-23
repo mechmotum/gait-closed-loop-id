@@ -179,10 +179,42 @@ def load_sample_data(num_nodes, gait_cycle_number=100):
     ang_arr[:, [0, 3]] *= -1  # change hip back to flexion
     ang_arr[:, [2, 5]] -= np.pi/2
 
+    markers = [
+        'LGTRO.PosX',
+        'LGTRO.PosY',
+        'LHEE.PosX',
+        'LHEE.PosY',
+        'LLEK.PosX',
+        'LLEK.PosY',
+        'LLM.PosX',
+        'LLM.PosY',
+        'LSHO.PosX',
+        'LSHO.PosY',
+        'LTOE.PosX',
+        'LTOE.PosY',
+        'RGTRO.PosX',
+        'RGTRO.PosY',
+        'RHEE.PosX',
+        'RHEE.PosY',
+        'RLEK.PosX',
+        'RLEK.PosY',
+        'RLM.PosX',
+        'RLM.PosY',
+        'RSHO.PosX',
+        'RSHO.PosY',
+        'RTOE.PosX',
+        'RTOE.PosY',
+    ]
+    marker_vals = df[markers].values
+
     new_time = np.linspace(0.0, duration, num=num_nodes - 1)
     interp_ang_arr = interp1d(time, ang_arr, axis=0)(new_time)
+    interp_mark_arr = interp1d(time, marker_vals, axis=0)(new_time)
 
-    return duration, walking_speed, len(angles), interp_ang_arr.T.flatten()
+    mark_df = pd.DataFrame(dict(zip(markers, interp_mark_arr.T)))
+
+    return (duration, walking_speed, len(angles), interp_ang_arr.T.flatten(),
+            mark_df)
 
 
 def plot_joint_comparison(t, angles, torques, angles_meas):

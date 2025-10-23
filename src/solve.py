@@ -10,11 +10,12 @@
 # Import all necessary modules, functions, and classes:
 import os
 from datetime import datetime
+import logging
 
 from opty import Problem
 from pygait2d import simulate
 from pygait2d.derive import derive_equations_of_motion
-from pygait2d.segment import time_symbol, contact_force
+from pygait2d.segment import time_symbol, contact_force, time_varying
 from symmeplot.matplotlib import Scene3D
 import matplotlib.pyplot as plt
 from matplotlib.animation import FuncAnimation
@@ -24,60 +25,112 @@ import sympy as sm
 from utils import (load_winter_data, load_sample_data, DATAPATH,
                    plot_joint_comparison)
 
+root = logging.getLogger(__name__)
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s %(levelname)s %(module)s - %(funcName)s: %(message)s',
+    datefmt='%H:%M:%S',
+)
+
 # %%
 # some settings
 make_animation = True
 num_nodes = 50       # number of time nodes for the half period
 genforce_scale = 0.001  # convert to kN and kNm
 eom_scale = 10.0     # scaling factor for eom
-# genforce_scale = 1 # convert to kN and kNm
-# eom_scale = 1     # scaling factor for eom
-obj_Wtorque = 100   # weight of torque objective
-obj_Wtrack = 100      # weight of tracking objective
+obj_Wtorque = 100   # weight of the mean squared torque (in kNm) objective
+obj_Wtrack = 100  # weight of the mean squared angle tracking error (in rad)
+obj_Wreg = 0.00000001  # weight of the mean squared time derivatives (for regularization)
+TRACK_MARKERS = True
+GAIT_CYCLE_NUM = 45
 
 if os.path.exists(DATAPATH):
     # load a gait cycle from our data (trial 20)
-    duration, walking_speed, num_angles, ang_data = load_sample_data(
-        num_nodes, gait_cycle_number=0)
-else:
+    (duration, walking_speed, num_angles, ang_data,
+     marker_df) = load_sample_data(num_nodes, gait_cycle_number=GAIT_CYCLE_NUM)
+elif not TRACK_MARKERS:
     # load normal gait data from Winter's book
     duration, walking_speed, num_angles, ang_data = load_winter_data(num_nodes)
+else:
+    raise ValueError("Winter's data does not have markers to track.")
 
 h = duration/(num_nodes - 1)
 
 # %%
 # Derive the equations of motion
-print(datetime.now().strftime("%H:%M:%S"))
+logging.info('Deriving the equations of motion.')
 symbolics = derive_equations_of_motion(prevent_ground_penetration=False,
                                        treadmill=True, hand_of_god=False)
-
 eom = symbolics.equations_of_motion
 
-#breakpoint()
-print('Number of operations in eom:', sm.count_ops(eom))
+
+def generate_marker_equations(symbolics):
+
+    O, N = symbolics.origin, symbolics.inertial_frame
+    trunk, rthigh, rshank, rfoot, lthigh, lshank, lfoot = symbolics.segments
+
+    points = {
+        'ank_l': lshank.joint,  # left ankle
+        'ank_r': rshank.joint,  # right ankle
+        #'hel_l': lfoot.heel,
+        #'hel_r': rfoot.heel,
+        #'hip_m': trunk.joint,  # hip
+        #'kne_l': lthigh.joint,  # left knee
+        #'kne_r': rthigh.joint,  # right knee
+        #'toe_l': lfoot.toe,
+        #'toe_r': rfoot.toe,
+        #'tor_m': trunk.mass_center,
+    }
+
+    variables = []
+    equations = []
+
+    for lab, point in points.items():
+        x, y = time_varying(f'{lab}x, {lab}y')
+        variables += [x, y]
+        # TODO : Manage belt speed if that matters.
+        x_eq = x - point.pos_from(O).dot(N.x)
+        y_eq = y - point.pos_from(O).dot(N.y)
+        equations += [x_eq, y_eq]
+
+    return variables, equations
+
 
 # do an overall scale, and then a unit conversion to kN and kNm
 eom = eom_scale * eom
 for i in range(9):
     eom[9+i] = genforce_scale * eom[9+i]
 
+# TODO : Should the marker equations be scaled like above?
+if TRACK_MARKERS:
+    marker_coords, marker_eqs = generate_marker_equations(symbolics)
+    ank_lx, ank_ly, ank_rx, ank_ry = marker_coords
+    eom = eom.col_join(sm.Matrix(marker_eqs))
+
+#breakpoint()
+print('Number of operations in eom:', sm.count_ops(eom))
+
 states = symbolics.states
 num_states = len(states)
 
 # %%
 # make an initial guess from the standing solution
-print(datetime.now().strftime("%H:%M:%S")+' making initial guess.')
+logging.info('Making an initial guess.')
 fname = 'standing.csv'
 if not os.path.exists(fname):
     # executes standing solution and generates 'standing.csv'
-    import solve_standing
+    import solve_standing  # this works, but probably not good python style
 standing_sol = np.loadtxt(fname)
-standing_state = standing_sol[0:num_states - 1].reshape(-1, 1)  # coordinates and speeds as column vector
+standing_state = standing_sol[0:num_states].reshape(-1, 1)  # coordinates and speeds as column vector
 state_traj = np.tile(standing_state, (1, num_nodes))  # make num_nodes copies
-delta_traj = h*np.arange(num_nodes).reshape(1, -1)    # row vector
-tor_traj = np.zeros((num_angles, num_nodes))          # intialize torques to zero
-initial_guess = np.concatenate((state_traj, delta_traj, tor_traj))  # complete trajectory
-initial_guess = initial_guess.flatten()               # make a single row vector
+tor_traj = np.zeros((num_angles, num_nodes))  # intialize torques to zero
+initial_guess = np.concatenate((state_traj, tor_traj))  # complete trajectory
+if TRACK_MARKERS:
+    # TODO : The marker positions could be calculated from the generalized
+    # coordinates.
+    mar_traj = np.zeros((len(marker_coords), num_nodes))
+    initial_guess = np.concatenate((initial_guess, mar_traj))
+initial_guess = initial_guess.flatten()  # make a single row vector
 np.random.seed(1)  # this makes the result reproducible
 initial_guess = initial_guess + 0.01*np.random.random_sample(initial_guess.size)
 
@@ -137,8 +190,7 @@ bounds.update({k: (-1000.0, 1000.0)
 # goes for the joint angular rates.
 #
 instance_constraints = (
-    qax.func(0*h) - 0.0,
-    qax.func(duration) - 0.0,
+    qax.func(0*h) - qax.func(duration),
     qay.func(0*h) - qay.func(duration),
     qa.func(0*h) - qa.func(duration),
     qb.func(0*h) - qe.func(duration),
@@ -157,7 +209,7 @@ instance_constraints = (
     uf.func(0*h) - uc.func(duration),
     ug.func(0*h) - ud.func(duration),
     # torques must also be periodic, because torques at t=0 are never
-    # used with Backward Euler, and will become zero due to the cost function
+    # used with Backward Euler, and would otherwise become zero due to the cost function
     Tb.func(0*h) - Te.func(duration),
     Tc.func(0*h) - Tf.func(duration),
     Td.func(0*h) - Tg.func(duration),
@@ -166,50 +218,102 @@ instance_constraints = (
     Tg.func(0*h) - Td.func(duration),
 )
 
+if TRACK_MARKERS:
+    marker_instance_constraints = (
+        ank_ly.func(0*h) - ank_ry.func(duration),
+        ank_lx.func(0*h) - ank_rx.func(duration),
+        ank_ry.func(0*h) - ank_ly.func(duration),
+        ank_rx.func(0*h) - ank_lx.func(duration),
+    )
+    instance_constraints += marker_instance_constraints
+
 # %%
 # The objective is a combination of squared torques and squared tracking errors
 
 # Make indices for the free variables that are angles and torques.
 # The final node is excluded, it is the first node of the next cycle
 angle_indices = np.empty(num_angles*(num_nodes-1), dtype=np.int64)
+num_torques = num_angles
+torque_indices = np.empty(num_torques*(num_nodes - 1), dtype=np.int64)
 inodes = np.arange(0, num_nodes - 1)
 for iangle in range(0, num_angles):
     # skip the first 3 DOFs and angles before iangle
     angle_indices[iangle*(num_nodes - 1) + inodes] = ((3 + iangle)*num_nodes +
                                                       inodes)
-
-torque_indices = np.empty(num_angles*(num_nodes - 1), dtype=np.int64)
-inodes = np.arange(0, num_nodes - 1)
-for itorque in range(0, num_angles):
+for itorque in range(0, num_torques):
     # skip the state trajectories, and torques before itorque
     torque_indices[itorque*(num_nodes-1) + inodes] = (
         (num_states+itorque)*num_nodes + inodes)
 
+# make indices to all trajectory variables in the first N-1 nodes,
+# for the regularization objective
+reg_indices = np.empty((num_states+num_torques)*(num_nodes-1), dtype=np.int64)
+for ivar in range(0, num_states + num_torques):
+    # skip the variables before ivar
+    reg_indices[ivar*(num_nodes-1) + inodes] = (ivar*num_nodes + inodes)
 
-def obj(free, obj_show=False):
+
+def obj(prob, free, obj_show=False):
     f_torque = (1e-6*obj_Wtorque*np.sum(free[torque_indices]**2)/
                 torque_indices.size)
     f_track = (obj_Wtrack*np.sum((free[angle_indices] - ang_data)**2)/
                angle_indices.size)
-    f_total = f_torque + f_track
+    # regularization cost is the mean of squared time derivatives of all variables
+    f_reg = (obj_Wreg*np.sum((free[reg_indices+1]-free[reg_indices])**2)/
+             reg_indices.size/h**2)
+    f_total = f_torque + f_track + f_reg
+
+    if TRACK_MARKERS:
+        f_marker_track = 0.0
+        for var, lab in zip((ank_lx, ank_ly, ank_rx, ank_ry),
+                            ('LLM.PosX', 'LLM.PosY', 'RLM.PosX', 'RLM.PosY')):
+            vals = prob.extract_values(var, free)
+            # we only return 49 nodes from measured, so add first to last
+            meas_vals = np.hstack((marker_df[lab].values,
+                                   marker_df[lab].values[0]))
+            # TODO : Ton divides the whole angle track by num_angles*num_nodes,
+            # need to combine this division for angle and marker track.
+            f_marker_track += (obj_Wtrack*np.sum((vals - meas_vals)**2)/
+                               len(vals)/len(marker_coords))
+        f_total += f_marker_track
+
     if obj_show:
-        print(f"   obj: {f_total:.3f} = {f_torque:.3f}(torque) + "
-              f"{f_track:.3f}(track)")
+        msg = (f"   obj: {f_total:.3f} = {f_torque:.3f}(torque) + "
+               f"{f_track:.3f}(track) + {f_reg:.3f}(reg)")
+        if TRACK_MARKERS:
+            msg += f" + {f_marker_track:.3f}(marker)"
+        print(msg)
+
     return f_total
 
 
-def obj_grad(free):
+def obj_grad(prob, free):
     grad = np.zeros_like(free)
     grad[torque_indices] = (2e-6*obj_Wtorque*free[torque_indices]/
                             torque_indices.size)
     grad[angle_indices] = (2.0*obj_Wtrack*(free[angle_indices] - ang_data)/
                            angle_indices.size)
+    grad[reg_indices] = grad[reg_indices] + (2.0*obj_Wreg*(free[reg_indices+1]-free[reg_indices])/
+                            reg_indices.size/h**2)
+    grad[reg_indices+1] = grad[reg_indices+1] + (2.0*obj_Wreg*(free[reg_indices+1]-free[reg_indices])/
+                            reg_indices.size/h**2)
+    # the regularization gradient could be coded more efficiently, but probably not worth doing
+
+    if TRACK_MARKERS:
+        for var, lab in zip((ank_lx, ank_ly, ank_rx, ank_ry),
+                            ('LLM.PosX', 'LLM.PosY', 'RLM.PosX', 'RLM.PosY')):
+            vals = prob.extract_values(var, free)
+            meas_vals = np.hstack((marker_df[lab].values,
+                                   marker_df[lab].values[0]))
+            prob.fill_free(grad, var, 2.0*obj_Wtrack*(vals - meas_vals)/
+                           len(vals)/len(marker_coords))
+
     return grad
 
 
 # %%
 # create the optimization problem
-print(datetime.now().strftime("%H:%M:%S") + " creating the opty problem")
+logging.info('Creating the opty problem.')
 
 # Create a belt velocity signal v(t)
 traj_map = {
@@ -232,7 +336,7 @@ prob = Problem(
 prob.add_option('max_iter', 3000)
 prob.add_option('tol', 1e-3)
 prob.add_option('constr_viol_tol', 1e-4)
-# prob.add_option('print_level', 0)
+prob.add_option('print_level', 0)
 
 
 # %%
@@ -252,7 +356,7 @@ def solve_gait(speed, initial_guess=None):
         #breakpoint()
 
     # show the final objective function value and its contributions
-    obj(solution, obj_show=True)
+    obj(prob, solution, obj_show=True)
 
     return solution
 
@@ -283,6 +387,28 @@ dat[:, 1] = -dat[:, 1]
 tor[:, [0, 2]] = -tor[:, [0, 2]]
 
 plot_joint_comparison(t, ang, tor, dat)
+
+
+def plot_ankle():
+    fig, ax = plt.subplots()
+    ax.plot(prob.extract_values(ank_lx, solution),
+            prob.extract_values(ank_ly, solution), color='C0',
+            label='Model, Left')
+    ax.plot(marker_df['LLM.PosX'], marker_df['LLM.PosY'],
+            color='C0', linestyle='--', label='Data, Left')
+    ax.plot(prob.extract_values(ank_rx, solution),
+            prob.extract_values(ank_ry, solution), color='C1',
+            label='Model, Right')
+    ax.plot(marker_df['RLM.PosX'], marker_df['RLM.PosY'],
+            color='C1', linestyle='--', label='Data, Right')
+    ax.set_aspect("equal")
+    ax.legend()
+    return ax
+
+
+if TRACK_MARKERS:
+    plot_ankle()
+
 
 plt.show()
 
@@ -342,8 +468,8 @@ def animate():
     scene.lambdify_system(states + symbolics.specifieds + symbolics.constants)
     gait_cycle = np.vstack((
         xs,  # q, u shape(2n, N)
+        rs[:6, :],  # r, shape(q, N)
         speed + np.zeros((1, len(times))),  # belt speed shape(1, N)
-        rs,  # r, shape(q, N)
         np.repeat(np.atleast_2d(np.array(list(par_map.values()))).T,
                   len(times), axis=1),  # p, shape(r, N)
     ))
