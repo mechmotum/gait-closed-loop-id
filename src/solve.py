@@ -265,7 +265,7 @@ def obj(prob, free, obj_show=False):
                 meas_vals = meas_vals - 0.04
             # TODO : Ton divides the whole angle track by num_angles*num_nodes,
             # need to combine this division for angle and marker track.
-            f_total += (obj_Wtrack*np.sum(vals - meas_vals)**2/len(vals)/
+            f_total += (obj_Wtrack*np.sum((vals - meas_vals)**2)/len(vals)/
                         len(marker_coords))
 
     if obj_show:
