@@ -1,10 +1,9 @@
 Setup
 =====
 
-Clone the two repositories where the developement is done::
+Clone the repository where the developement is done::
 
    git clone git@github.com:mechmotum/gait-closed-loop-id.git
-   git clone git@github.com:csu-hmc/gait2d.git
 
 If using Spyder, install it along with ``spyder-kernels`` in your base
 environment::
@@ -21,18 +20,13 @@ You will also need a working C compiler on your operating system. For Windows,
 you'll need the right compiler for the Python version you are using. See
 https://wiki.python.org/moin/WindowsCompilers for more info.
 
-Install an editable development version of gait2d::
+If we make updates in gait2d or opty, you will need to recreate the
+environment::
 
-   cd ../gait2d
-   python -m pip install --no-dependencies --no-build-isolation --editable  .
-
-If that fails, try::
-
-   python -m pip install --no-deps --no-build-isolation git+https://github.com/csu-hmc/gait2d#egg=gait2d
-
-Change back into the project repository::
-
-   cd ../gait-closed-loop-id
+   conda deactivate
+   conda env remove -n gait-closed-loop-id
+   conda env create -f gait-closed-loop-id-env.yml
+   conda activate gait-closed-loop-id
 
 Data
 ====

@@ -1,10 +1,12 @@
 name: gait-closed-loop-id
 channels:
   - conda-forge
+  - nodefaults  # ensure only from conda forge
 dependencies:
   - cyipopt
   - cython
   - ffmpeg
+  - ipopt
   - ipython
   - matplotlib
   - numpy
@@ -19,6 +21,7 @@ dependencies:
   - symmeplot
   - sympy
   - yeadon
-  # NOTE : install the development version of opty
+  # NOTE : install the development version of opty and gait2d
   - pip:
     - git+https://github.com/csu-hmc/opty#egg=opty
+    - git+https://github.com/csu-hmc/gait2d#egg=gait2d
