@@ -25,7 +25,7 @@ import sympy as sm
 from utils import (load_winter_data, load_sample_data, DATAPATH,
                    plot_joint_comparison)
 
-root = logging.getLogger()
+root = logging.getLogger(__name__)
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s %(levelname)s %(module)s - %(funcName)s: %(message)s',
@@ -216,15 +216,14 @@ instance_constraints = (
     Tg.func(0*h) - Td.func(duration),
 )
 
-marker_instance_constraints = (
-    ank_ly.func(0*h) - ank_ry.func(duration),
-    ank_lx.func(0*h) - ank_rx.func(duration),
-    ank_ry.func(0*h) - ank_ly.func(duration),
-    ank_rx.func(0*h) - ank_lx.func(duration),
-)
-
 if TRACK_MARKERS:
-    instance_constraints = instance_constraints + marker_instance_constraints
+    marker_instance_constraints = (
+        ank_ly.func(0*h) - ank_ry.func(duration),
+        ank_lx.func(0*h) - ank_rx.func(duration),
+        ank_ry.func(0*h) - ank_ly.func(duration),
+        ank_rx.func(0*h) - ank_lx.func(duration),
+    )
+    instance_constraints += marker_instance_constraints
 
 # %%
 # The objective is a combination of squared torques and squared tracking errors
@@ -301,7 +300,7 @@ def obj_grad(prob, free):
 
 # %%
 # create the optimization problem
-print(datetime.now().strftime("%H:%M:%S") + " creating the opty problem")
+logging.info('Creating the opty problem.')
 
 # Create a belt velocity signal v(t)
 traj_map = {
@@ -376,8 +375,6 @@ tor[:, [0, 2]] = -tor[:, [0, 2]]
 
 plot_joint_comparison(t, ang, tor, dat)
 
-plt.show()
-
 
 def plot_ankle():
     fig, ax = plt.subplots()
@@ -398,6 +395,9 @@ def plot_ankle():
 
 if TRACK_MARKERS:
     plot_ankle()
+
+
+plt.show()
 
 
 def animate():
