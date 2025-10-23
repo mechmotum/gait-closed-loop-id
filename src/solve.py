@@ -273,6 +273,42 @@ def obj_grad(free):
     return grad
 
 
+def create_var_dict(prob, free):
+    """Returns a dictionary that has SymPy dynamic symbols mapped to
+    the solution.
+
+    Parameters
+    ==========
+    prob : Problem
+        Instance of an opty Problem.
+    free : array_like, shape(n*N + q*N,)
+        The free optimization variables.
+
+    Returns
+    =======
+    d : dictionary
+        Maps dynamicsymbols to array of shape(N,)
+
+    """
+    x, r, p = prob.parse_free(free)
+    d = {}
+    for symbol, array in zip(prob.collocator.state_symbols, x):
+        d[symbol] = array
+    for symbol, array in zip(prob.collocator.unknown_trajectories, r):
+        d[symbol] = array
+    for symbol, val in zip(prob.collocator.unknown_parameters, p):
+        d[symbol] = val
+    return d
+
+
+def obj_track_markers(prob, free):
+    d = create_var_dict(prob, free)
+    np.sum(d['toe_rx'] - meas['RTOE.PosX'])**2 +
+    np.sum(d['toe_ry'] - meas['RTOE.Posy'])**2 +
+    np.sum(d['hee_rx'] - meas['RHEE.PosX'])**2 +
+    np.sum(d['hee_ry'] - meas['RHEE.Posy'])**2
+
+
 # %%
 # create the optimization problem
 print(datetime.now().strftime("%H:%M:%S") + " creating the opty problem")
