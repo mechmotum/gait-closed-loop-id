@@ -116,7 +116,7 @@ tor_traj = np.zeros((num_angles, num_nodes))          # intialize torques to zer
 mar_traj = np.zeros((len(marker_coords), num_nodes))          # intialize torques to zero
 initial_guess = np.concatenate((state_traj, delta_traj, tor_traj, mar_traj))  # complete trajectory
 initial_guess = initial_guess.flatten()               # make a single row vector
-np.random.seed(1)  # this makes the result reproducible
+#np.random.seed(1)  # this makes the result reproducible
 initial_guess = initial_guess + 0.01*np.random.random_sample(initial_guess.size)
 
 # %%
@@ -202,6 +202,10 @@ instance_constraints = (
     Te.func(0*h) - Tb.func(duration),
     Tf.func(0*h) - Tc.func(duration),
     Tg.func(0*h) - Td.func(duration),
+    ank_ly.func(0*h) - ank_ry.func(duration),
+    ank_lx.func(0*h) - ank_rx.func(duration),
+    ank_ry.func(0*h) - ank_ly.func(duration),
+    ank_rx.func(0*h) - ank_lx.func(duration),
 )
 
 # %%
@@ -235,6 +239,7 @@ def obj(prob, free, obj_show=False):
         vals = prob.extract_values(var, free)
         # we only return 49 nodes from measured, so add first to last
         meas_vals = np.hstack((meas[lab].values, meas[lab].values[0]))
+        meas_vals = meas_vals - 0.05
         # TODO : Ton divides the whole angle track by num_angles*num_nodes,
         # need to combine this division for angle and marker track.
         f_marker_track += obj_Wtrack*np.sum(vals - meas_vals)**2/len(vals)/4
@@ -257,6 +262,7 @@ def obj_grad(prob, free):
                         ('LLM.PosX', 'LLM.PosY', 'RLM.PosX', 'RLM.PosY')):
         vals = prob.extract_values(var, free)
         meas_vals = np.hstack((meas[lab].values, meas[lab].values[0]))
+        meas_vals = meas_vals - 0.05
         prob.fill_free(grad, var, 2.0*obj_Wtrack*(vals - meas_vals)/len(vals)/4)
 
     return grad
@@ -347,13 +353,13 @@ def plot_ankle():
     ax.plot(prob.extract_values(ank_lx, solution),
             prob.extract_values(ank_ly, solution), color='C0',
             label='Model, Left')
-    ax.plot(meas['LLM.PosX'], meas['LLM.PosY'], color='C0', linestyle='--',
-            label='Data, Left')
+    ax.plot(meas['LLM.PosX'] - 0.05, meas['LLM.PosY'] - 0.05, color='C0',
+            linestyle='--', label='Data, Left')
     ax.plot(prob.extract_values(ank_rx, solution),
             prob.extract_values(ank_ry, solution), color='C1',
             label='Model, Right')
-    ax.plot(meas['RLM.PosX'], meas['RLM.PosY'], color='C1', linestyle='--',
-            label='Data, Right')
+    ax.plot(meas['RLM.PosX'] - 0.05, meas['RLM.PosY'] - 0.05, color='C1',
+            linestyle='--', label='Data, Right')
     ax.set_aspect("equal")
     ax.legend()
     return ax
