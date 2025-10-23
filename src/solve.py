@@ -10,6 +10,7 @@
 # Import all necessary modules, functions, and classes:
 import os
 from datetime import datetime
+
 from opty import Problem
 from pygait2d import simulate
 from pygait2d.derive import derive_equations_of_motion
@@ -19,6 +20,9 @@ import matplotlib.pyplot as plt
 from matplotlib.animation import FuncAnimation
 import numpy as np
 import sympy as sm
+
+from utils import (load_winter_data, load_sample_data, DATAPATH,
+                   plot_joint_comparison)
 
 # %%
 # some settings
@@ -31,33 +35,15 @@ eom_scale = 10.0     # scaling factor for eom
 obj_Wtorque = 100   # weight of torque objective
 obj_Wtrack = 100      # weight of tracking objective
 
-# load normal gait data from Winter's book
-fname = os.path.join(os.path.dirname(__file__),
-                     os.path.join('..', 'data', 'Winter_normal.csv'))
-data = np.genfromtxt(fname, delimiter=',')
+if os.path.exists(DATAPATH):
+    # load a gait cycle from our data (trial 20)
+    duration, walking_speed, num_angles, ang_data = load_sample_data(
+        num_nodes, gait_cycle_number=0)
+else:
+    # load normal gait data from Winter's book
+    duration, walking_speed, num_angles, ang_data = load_winter_data(num_nodes)
 
-# extract gait cycle duration and speed
-duration = data[1, 2]/2  # half gait cycle duration
 h = duration/(num_nodes - 1)
-walking_speed = data[2, 2]
-
-# extract  hip, knee, ankle angle (full gait cycle)
-ang = np.deg2rad(data[6:57, 4:7])
-# invert Winter's knee angle, to be compatible with our model
-ang[:, 1] = -ang[:, 1]
-
-# convert full gait cycle (one side) into a half gait cycle for both sides and
-# resample to num_nodes
-ang = np.concatenate((ang[:26, :], ang[25:, :]), axis=1)
-rows, num_angles = ang.shape
-ang_resampled = np.zeros((num_nodes-1, num_angles))
-t = np.arange(0, rows)/(rows-1)  # gait phase from data
-t_new = np.arange(0, num_nodes-1)/(num_nodes-1)  # gait phase for simulation
-for i in range(0, num_angles):
-    ang_resampled[:, i] = np.interp(t_new, t, ang[:, i])
-
-# store the angle trajectories in a 1d array, for tracking
-ang_data = ang_resampled.transpose().flatten()
 
 # %%
 # Derive the equations of motion
@@ -108,21 +94,10 @@ eom = eom_scale * eom
 for i in range(9):
     eom[9+i] = genforce_scale * eom[9+i]
 
-# %%
-# Create a state variable "delt" which is equal to time, for use in controller
-# and/or instance constraints.
-#
-# .. math::
-#
-#    \Delta_t(t) = \int_{t_0}^{t} d\tau
-#
-delt = sm.Function('delt', real=True)(time_symbol)
-eom = eom.col_join(sm.Matrix([delt.diff(time_symbol) - 1]))
-
 marker_coords, marker_eqs = generate_marker_equations(symbolics)
 eom = eom.col_join(sm.Matrix(marker_eqs))
 
-states = symbolics.states + [delt]
+states = symbolics.states
 num_states = len(states)
 
 # %%
@@ -171,7 +146,6 @@ par_map = simulate.load_constants(
 # - Only let the hip, knee, and ankle flex and extend to realistic limits.
 # - Put a maximum on the peak torque values.
 bounds = {
-    delt: (0.0, 2.0),
     qax: (-1.0, 1.0),
     qay: (0.5, 1.5),
     qa: np.deg2rad((-60.0, 60.0)),
@@ -200,7 +174,6 @@ bounds.update({k: (-1000.0, 1000.0)
 # goes for the joint angular rates.
 #
 instance_constraints = (
-    delt.func(0*h) - 0.0,
     qax.func(0*h) - 0.0,
     qax.func(duration) - 0.0,
     qay.func(0*h) - qay.func(duration),
@@ -228,9 +201,7 @@ instance_constraints = (
     Te.func(0*h) - Tb.func(duration),
     Tf.func(0*h) - Tc.func(duration),
     Tg.func(0*h) - Td.func(duration),
-
 )
-
 
 # %%
 # The objective is a combination of squared torques and squared tracking errors
@@ -303,10 +274,10 @@ def create_var_dict(prob, free):
 
 def obj_track_markers(prob, free):
     d = create_var_dict(prob, free)
-    np.sum(d['toe_rx'] - meas['RTOE.PosX'])**2 +
-    np.sum(d['toe_ry'] - meas['RTOE.Posy'])**2 +
-    np.sum(d['hee_rx'] - meas['RHEE.PosX'])**2 +
-    np.sum(d['hee_ry'] - meas['RHEE.Posy'])**2
+    (np.sum(d['toe_rx'] - meas['RTOE.PosX'])**2 +
+     np.sum(d['toe_ry'] - meas['RTOE.Posy'])**2 +
+     np.sum(d['hee_rx'] - meas['RHEE.PosX'])**2 +
+     np.sum(d['hee_ry'] - meas['RHEE.Posy'])**2)
 
 
 # %%
@@ -315,7 +286,7 @@ print(datetime.now().strftime("%H:%M:%S") + " creating the opty problem")
 
 # Create a belt velocity signal v(t)
 traj_map = {
-    v: np.zeros(num_nodes),
+    v: walking_speed*np.ones(num_nodes),
 }
 
 prob = Problem(
@@ -342,7 +313,7 @@ prob.add_option('constr_viol_tol', 1e-4)
 def solve_gait(speed, initial_guess=None):
 
     # change the belt speed signal
-    traj_map[v] = speed + np.zeros(num_nodes)
+    traj_map[v] = speed*np.ones(num_nodes)
 
     # solve
     print(datetime.now().strftime("%H:%M:%S") +
@@ -360,13 +331,9 @@ def solve_gait(speed, initial_guess=None):
 
 
 # solve for a series of increasing speeds, ending at the required speed
-for speed in np.linspace(0, walking_speed, 10):
+for speed in np.linspace(0.0, walking_speed, num=10):
     solution = solve_gait(speed, initial_guess)
     initial_guess = solution  # use this solution as guess for the next problem
-# solution = solve_gait(0.0, initial_guess)
-
-fname = f'human_gait_{num_nodes}_nodes_solution.csv'
-np.savetxt(fname, solution, fmt='%.5f')
 
 # %%
 # make plots
@@ -387,26 +354,8 @@ t = np.arange(2*num_nodes-1) * h
 ang[:, 1] = -ang[:, 1]
 dat[:, 1] = -dat[:, 1]
 tor[:, [0, 2]] = -tor[:, [0, 2]]
-anglabels = ('hip flexion', 'knee flexion', 'ankle dorsiflexion')
-torlabels = ('hip extension', 'knee extension', 'ankle plantarflexion')
 
-# plot
-plt.figure(figsize=(6.0, 9.0))
-colors = ('r', 'b', 'g')
-
-plt.subplot(2, 1, 1)
-for i in range(3):
-    plt.plot(t, ang[:, i], colors[i], label=anglabels[i])
-    plt.plot(t, dat[:, i], colors[i]+'--')
-plt.legend()
-plt.ylabel('angle (deg)')
-
-plt.subplot(2, 1, 2)
-for i in range(3):
-    plt.plot(t, tor[:, i], colors[i], label=torlabels[i])
-plt.legend()
-plt.ylabel('torque (Nm)')
-plt.xlabel('time (s)')
+plot_joint_comparison(t, ang, tor, dat)
 
 plt.show()
 
