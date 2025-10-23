@@ -10,6 +10,7 @@
 # Import all necessary modules, functions, and classes:
 import os
 from datetime import datetime
+import logging
 
 from opty import Problem
 from pygait2d import simulate
@@ -24,6 +25,13 @@ import sympy as sm
 from utils import (load_winter_data, load_sample_data, DATAPATH,
                    plot_joint_comparison)
 
+root = logging.getLogger()
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s %(levelname)s %(module)s - %(funcName)s: %(message)s',
+    datefmt='%H:%M:%S',
+)
+
 # %%
 # some settings
 make_animation = True
@@ -34,23 +42,26 @@ eom_scale = 10.0     # scaling factor for eom
 # eom_scale = 1     # scaling factor for eom
 obj_Wtorque = 100   # weight of torque objective
 obj_Wtrack = 100      # weight of tracking objective
+TRACK_MARKERS = True
+GAIT_CYCLE_NUM = 45
 
 if os.path.exists(DATAPATH):
     # load a gait cycle from our data (trial 20)
-    duration, walking_speed, num_angles, ang_data, meas = load_sample_data(
-        num_nodes, gait_cycle_number=0, include_markers=True)
-else:
+    (duration, walking_speed, num_angles, ang_data,
+     marker_df) = load_sample_data(num_nodes, gait_cycle_number=GAIT_CYCLE_NUM)
+elif not TRACK_MARKERS:
     # load normal gait data from Winter's book
     duration, walking_speed, num_angles, ang_data = load_winter_data(num_nodes)
+else:
+    raise ValueError("Winter's data does not have markers to track.")
 
 h = duration/(num_nodes - 1)
 
 # %%
 # Derive the equations of motion
-print(datetime.now().strftime("%H:%M:%S"))
+logging.info('Deriving the equations of motion.')
 symbolics = derive_equations_of_motion(prevent_ground_penetration=False,
                                        treadmill=True, hand_of_god=False)
-
 eom = symbolics.equations_of_motion
 
 
@@ -86,24 +97,25 @@ def generate_marker_equations(symbolics):
     return variables, equations
 
 
-#breakpoint()
-print('Number of operations in eom:', sm.count_ops(eom))
-
 # do an overall scale, and then a unit conversion to kN and kNm
 eom = eom_scale * eom
 for i in range(9):
     eom[9+i] = genforce_scale * eom[9+i]
 
-marker_coords, marker_eqs = generate_marker_equations(symbolics)
-ank_lx, ank_ly, ank_rx, ank_ry = marker_coords
-eom = eom.col_join(sm.Matrix(marker_eqs))
+if TRACK_MARKERS:
+    marker_coords, marker_eqs = generate_marker_equations(symbolics)
+    ank_lx, ank_ly, ank_rx, ank_ry = marker_coords
+    eom = eom.col_join(sm.Matrix(marker_eqs))
+
+#breakpoint()
+print('Number of operations in eom:', sm.count_ops(eom))
 
 states = symbolics.states
 num_states = len(states)
 
 # %%
 # make an initial guess from the standing solution
-print(datetime.now().strftime("%H:%M:%S")+' making initial guess.')
+logging.info('Making an initial guess.')
 fname = 'standing.csv'
 if not os.path.exists(fname):
     # executes standing solution and generates 'standing.csv'
@@ -116,7 +128,7 @@ tor_traj = np.zeros((num_angles, num_nodes))          # intialize torques to zer
 mar_traj = np.zeros((len(marker_coords), num_nodes))          # intialize torques to zero
 initial_guess = np.concatenate((state_traj, delta_traj, tor_traj, mar_traj))  # complete trajectory
 initial_guess = initial_guess.flatten()               # make a single row vector
-#np.random.seed(1)  # this makes the result reproducible
+np.random.seed(1)  # this makes the result reproducible
 initial_guess = initial_guess + 0.01*np.random.random_sample(initial_guess.size)
 
 # %%
@@ -202,11 +214,17 @@ instance_constraints = (
     Te.func(0*h) - Tb.func(duration),
     Tf.func(0*h) - Tc.func(duration),
     Tg.func(0*h) - Td.func(duration),
+)
+
+marker_instance_constraints = (
     ank_ly.func(0*h) - ank_ry.func(duration),
     ank_lx.func(0*h) - ank_rx.func(duration),
     ank_ry.func(0*h) - ank_ly.func(duration),
     ank_rx.func(0*h) - ank_lx.func(duration),
 )
+
+if TRACK_MARKERS:
+    instance_constraints = instance_constraints + marker_instance_constraints
 
 # %%
 # The objective is a combination of squared torques and squared tracking errors
@@ -233,24 +251,28 @@ def obj(prob, free, obj_show=False):
                 torque_indices.size)
     f_track = (obj_Wtrack*np.sum((free[angle_indices] - ang_data)**2)/
                angle_indices.size)
-    f_marker_track = 0.0
-    for var, lab in zip((ank_lx, ank_ly, ank_rx, ank_ry),
-                        ('LLM.PosX', 'LLM.PosY', 'RLM.PosX', 'RLM.PosY')):
-        vals = prob.extract_values(var, free)
-        # we only return 49 nodes from measured, so add first to last
-        meas_vals = np.hstack((meas[lab].values, meas[lab].values[0]))
-        if 'X' in lab:
-            meas_vals = meas_vals - 0.12
-        else:
-            meas_vals = meas_vals - 0.05
-        # TODO : Ton divides the whole angle track by num_angles*num_nodes,
-        # need to combine this division for angle and marker track.
-        f_marker_track += obj_Wtrack*np.sum(vals - meas_vals)**2/len(vals)/4
+    f_total = f_torque + f_track
 
-    f_total = f_torque + f_track + f_marker_track
+    if TRACK_MARKERS:
+        for var, lab in zip((ank_lx, ank_ly, ank_rx, ank_ry),
+                            ('LLM.PosX', 'LLM.PosY', 'RLM.PosX', 'RLM.PosY')):
+            vals = prob.extract_values(var, free)
+            # we only return 49 nodes from measured, so add first to last
+            meas_vals = np.hstack((marker_df[lab].values,
+                                   marker_df[lab].values[0]))
+            if 'X' in lab:
+                meas_vals = meas_vals - 0.12
+            else:
+                meas_vals = meas_vals - 0.04
+            # TODO : Ton divides the whole angle track by num_angles*num_nodes,
+            # need to combine this division for angle and marker track.
+            f_total += (obj_Wtrack*np.sum(vals - meas_vals)**2/len(vals)/
+                        len(marker_coords))
+
     if obj_show:
         print(f"   obj: {f_total:.3f} = {f_torque:.3f}(torque) + "
               f"{f_track:.3f}(track)")
+
     return f_total
 
 
@@ -261,15 +283,18 @@ def obj_grad(prob, free):
     grad[angle_indices] = (2.0*obj_Wtrack*(free[angle_indices] - ang_data)/
                            angle_indices.size)
 
-    for var, lab in zip((ank_lx, ank_ly, ank_rx, ank_ry),
-                        ('LLM.PosX', 'LLM.PosY', 'RLM.PosX', 'RLM.PosY')):
-        vals = prob.extract_values(var, free)
-        meas_vals = np.hstack((meas[lab].values, meas[lab].values[0]))
-        if 'X' in lab:
-            meas_vals = meas_vals - 0.12
-        else:
-            meas_vals = meas_vals - 0.05
-        prob.fill_free(grad, var, 2.0*obj_Wtrack*(vals - meas_vals)/len(vals)/4)
+    if TRACK_MARKERS:
+        for var, lab in zip((ank_lx, ank_ly, ank_rx, ank_ry),
+                            ('LLM.PosX', 'LLM.PosY', 'RLM.PosX', 'RLM.PosY')):
+            vals = prob.extract_values(var, free)
+            meas_vals = np.hstack((marker_df[lab].values,
+                                   marker_df[lab].values[0]))
+            if 'X' in lab:
+                meas_vals = meas_vals - 0.12
+            else:
+                meas_vals = meas_vals - 0.04
+            prob.fill_free(grad, var, 2.0*obj_Wtrack*(vals - meas_vals)/
+                           len(vals)/len(marker_coords))
 
     return grad
 
@@ -299,7 +324,7 @@ prob = Problem(
 prob.add_option('max_iter', 3000)
 prob.add_option('tol', 1e-3)
 prob.add_option('constr_viol_tol', 1e-4)
-# prob.add_option('print_level', 0)
+prob.add_option('print_level', 0)
 
 
 # %%
@@ -359,19 +384,20 @@ def plot_ankle():
     ax.plot(prob.extract_values(ank_lx, solution),
             prob.extract_values(ank_ly, solution), color='C0',
             label='Model, Left')
-    ax.plot(meas['LLM.PosX'] - 0.12, meas['LLM.PosY'] - 0.05, color='C0',
-            linestyle='--', label='Data, Left')
+    ax.plot(marker_df['LLM.PosX'] - 0.12, marker_df['LLM.PosY'] - 0.04,
+            color='C0', linestyle='--', label='Data, Left')
     ax.plot(prob.extract_values(ank_rx, solution),
             prob.extract_values(ank_ry, solution), color='C1',
             label='Model, Right')
-    ax.plot(meas['RLM.PosX'] - 0.12, meas['RLM.PosY'] - 0.05, color='C1',
-            linestyle='--', label='Data, Right')
+    ax.plot(marker_df['RLM.PosX'] - 0.12, marker_df['RLM.PosY'] - 0.04,
+            color='C1', linestyle='--', label='Data, Right')
     ax.set_aspect("equal")
     ax.legend()
     return ax
 
 
-plot_ankle()
+if TRACK_MARKERS:
+    plot_ankle()
 
 
 def animate():

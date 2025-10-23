@@ -154,7 +154,7 @@ def load_winter_data(num_nodes):
     return duration, walking_speed, num_angles, ang_data
 
 
-def load_sample_data(num_nodes, gait_cycle_number=100, include_markers=False):
+def load_sample_data(num_nodes, gait_cycle_number=100):
     master_df = pd.read_csv(DATAPATH)
     df = extract_gait_cycle(master_df, gait_cycle_number)
 
@@ -180,10 +180,30 @@ def load_sample_data(num_nodes, gait_cycle_number=100, include_markers=False):
     ang_arr[:, [2, 5]] -= np.pi/2
 
     markers = [
+        'LGTRO.PosX',
+        'LGTRO.PosY',
+        'LHEE.PosX',
+        'LHEE.PosY',
+        'LLEK.PosX',
+        'LLEK.PosY',
         'LLM.PosX',
         'LLM.PosY',
+        'LSHO.PosX',
+        'LSHO.PosY',
+        'LTOE.PosX',
+        'LTOE.PosY',
+        'RGTRO.PosX',
+        'RGTRO.PosY',
+        'RHEE.PosX',
+        'RHEE.PosY',
+        'RLEK.PosX',
+        'RLEK.PosY',
         'RLM.PosX',
         'RLM.PosY',
+        'RSHO.PosX',
+        'RSHO.PosY',
+        'RTOE.PosX',
+        'RTOE.PosY',
     ]
     marker_vals = df[markers].values
 
@@ -193,11 +213,8 @@ def load_sample_data(num_nodes, gait_cycle_number=100, include_markers=False):
 
     mark_df = pd.DataFrame(dict(zip(markers, interp_mark_arr.T)))
 
-    if include_markers:
-        return (duration, walking_speed, len(angles),
-                interp_ang_arr.T.flatten(), mark_df)
-    else:
-        return duration, walking_speed, len(angles), interp_ang_arr.T.flatten()
+    return (duration, walking_speed, len(angles), interp_ang_arr.T.flatten(),
+            mark_df)
 
 
 def plot_joint_comparison(t, angles, torques, angles_meas):
