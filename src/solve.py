@@ -38,10 +38,9 @@ make_animation = True
 num_nodes = 50       # number of time nodes for the half period
 genforce_scale = 0.001  # convert to kN and kNm
 eom_scale = 10.0     # scaling factor for eom
-# genforce_scale = 1 # convert to kN and kNm
-# eom_scale = 1     # scaling factor for eom
-obj_Wtorque = 100   # weight of torque objective
-obj_Wtrack = 100      # weight of tracking objective
+obj_Wtorque = 100   # weight of the mean squared torque (in kNm) objective
+obj_Wtrack = 100    # weight of the mean squared angle tracking error (in rad)
+obj_Wreg = 0.001    # weight of the mean squared time derivatives (for regularization)
 TRACK_MARKERS = True
 GAIT_CYCLE_NUM = 45
 
@@ -119,7 +118,7 @@ logging.info('Making an initial guess.')
 fname = 'standing.csv'
 if not os.path.exists(fname):
     # executes standing solution and generates 'standing.csv'
-    import solve_standing
+    import solve_standing  # this works, but probably not good python style
 standing_sol = np.loadtxt(fname)
 standing_state = standing_sol[0:num_states - 1].reshape(-1, 1)  # coordinates and speeds as column vector
 state_traj = np.tile(standing_state, (1, num_nodes))  # make num_nodes copies
@@ -207,7 +206,7 @@ instance_constraints = (
     uf.func(0*h) - uc.func(duration),
     ug.func(0*h) - ud.func(duration),
     # torques must also be periodic, because torques at t=0 are never
-    # used with Backward Euler, and will become zero due to the cost function
+    # used with Backward Euler, and would otherwise become zero due to the cost function
     Tb.func(0*h) - Te.func(duration),
     Tc.func(0*h) - Tf.func(duration),
     Td.func(0*h) - Tg.func(duration),
@@ -231,26 +230,34 @@ if TRACK_MARKERS:
 # Make indices for the free variables that are angles and torques.
 # The final node is excluded, it is the first node of the next cycle
 angle_indices = np.empty(num_angles*(num_nodes-1), dtype=np.int64)
+num_torques = num_angles
+torque_indices = np.empty(num_torques*(num_nodes - 1), dtype=np.int64)
 inodes = np.arange(0, num_nodes - 1)
 for iangle in range(0, num_angles):
     # skip the first 3 DOFs and angles before iangle
     angle_indices[iangle*(num_nodes - 1) + inodes] = ((3 + iangle)*num_nodes +
                                                       inodes)
-
-torque_indices = np.empty(num_angles*(num_nodes - 1), dtype=np.int64)
-inodes = np.arange(0, num_nodes - 1)
-for itorque in range(0, num_angles):
+for itorque in range(0, num_torques):
     # skip the state trajectories, and torques before itorque
     torque_indices[itorque*(num_nodes-1) + inodes] = (
         (num_states+itorque)*num_nodes + inodes)
-
+   
+# make indices to all trajectory variables in the first N-1 nodes,
+# for the regularization objective
+reg_indices = np.empty((num_states+num_torques)*(num_nodes-1), dtype=np.int64)
+for ivar in range(0, num_states + num_torques):
+    # skip the variables before ivar
+    torque_indices[ivar*(num_nodes-1) + inodes] = (ivar*num_nodes + inodes)
 
 def obj(prob, free, obj_show=False):
     f_torque = (1e-6*obj_Wtorque*np.sum(free[torque_indices]**2)/
                 torque_indices.size)
     f_track = (obj_Wtrack*np.sum((free[angle_indices] - ang_data)**2)/
                angle_indices.size)
-    f_total = f_torque + f_track
+    # regularization cost is the mean of squared time derivatives of all variables
+    f_reg   = (obj.Wreg*np.sum((free[reg_indices+1]-free[reg_indices])**2)/
+                reg_indices.size/h**2)
+    f_total = f_torque + f_track + f_reg
 
     if TRACK_MARKERS:
         for var, lab in zip((ank_lx, ank_ly, ank_rx, ank_ry),
@@ -281,6 +288,11 @@ def obj_grad(prob, free):
                             torque_indices.size)
     grad[angle_indices] = (2.0*obj_Wtrack*(free[angle_indices] - ang_data)/
                            angle_indices.size)
+    grad[reg_indices] = grad[reg_indices] + (2.0*obj.Wreg*(free[reg_indices+1]-free[reg_indices])/
+                            reg_indices.size/h**2)
+    grad[reg_indices+1] = grad[reg_indices+1] + (2.0*obj.Wreg*(free[reg_indices+1]-free[reg_indices])/
+                            reg_indices.size/h**2)
+    # the regularization gradient could be coded more efficiently, but probably not worth doing
 
     if TRACK_MARKERS:
         for var, lab in zip((ank_lx, ank_ly, ank_rx, ank_ry),

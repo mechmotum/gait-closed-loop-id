@@ -103,7 +103,6 @@ prob = Problem(
     bounds=bounds,
     time_symbol=time_symbol,
 )
-prob.add_option('max_iter', 3000)
 
 # %%
 # Find the optimal solution and save it if it converges.
