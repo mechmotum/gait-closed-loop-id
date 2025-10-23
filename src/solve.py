@@ -241,13 +241,14 @@ for itorque in range(0, num_torques):
     # skip the state trajectories, and torques before itorque
     torque_indices[itorque*(num_nodes-1) + inodes] = (
         (num_states+itorque)*num_nodes + inodes)
-   
+
 # make indices to all trajectory variables in the first N-1 nodes,
 # for the regularization objective
 reg_indices = np.empty((num_states+num_torques)*(num_nodes-1), dtype=np.int64)
 for ivar in range(0, num_states + num_torques):
     # skip the variables before ivar
-    torque_indices[ivar*(num_nodes-1) + inodes] = (ivar*num_nodes + inodes)
+    reg_indices[ivar*(num_nodes-1) + inodes] = (ivar*num_nodes + inodes)
+
 
 def obj(prob, free, obj_show=False):
     f_torque = (1e-6*obj_Wtorque*np.sum(free[torque_indices]**2)/
@@ -255,9 +256,9 @@ def obj(prob, free, obj_show=False):
     f_track = (obj_Wtrack*np.sum((free[angle_indices] - ang_data)**2)/
                angle_indices.size)
     # regularization cost is the mean of squared time derivatives of all variables
-    f_reg   = (obj.Wreg*np.sum((free[reg_indices+1]-free[reg_indices])**2)/
-                reg_indices.size/h**2)
-    f_total = f_torque + f_track + f_reg
+    f_reg = (obj_Wreg*np.sum((free[reg_indices+1]-free[reg_indices])**2)/
+             reg_indices.size/h**2)
+    f_total = f_torque + f_track# + f_reg
 
     if TRACK_MARKERS:
         for var, lab in zip((ank_lx, ank_ly, ank_rx, ank_ry),
@@ -288,10 +289,10 @@ def obj_grad(prob, free):
                             torque_indices.size)
     grad[angle_indices] = (2.0*obj_Wtrack*(free[angle_indices] - ang_data)/
                            angle_indices.size)
-    grad[reg_indices] = grad[reg_indices] + (2.0*obj.Wreg*(free[reg_indices+1]-free[reg_indices])/
-                            reg_indices.size/h**2)
-    grad[reg_indices+1] = grad[reg_indices+1] + (2.0*obj.Wreg*(free[reg_indices+1]-free[reg_indices])/
-                            reg_indices.size/h**2)
+    #grad[reg_indices] = grad[reg_indices] + (2.0*obj_Wreg*(free[reg_indices+1]-free[reg_indices])/
+                            #reg_indices.size/h**2)
+    #grad[reg_indices+1] = grad[reg_indices+1] + (2.0*obj_Wreg*(free[reg_indices+1]-free[reg_indices])/
+                            #reg_indices.size/h**2)
     # the regularization gradient could be coded more efficiently, but probably not worth doing
 
     if TRACK_MARKERS:
@@ -467,8 +468,8 @@ def animate():
     scene.lambdify_system(states + symbolics.specifieds + symbolics.constants)
     gait_cycle = np.vstack((
         xs,  # q, u shape(2n, N)
-        speed + np.zeros((1, len(times))),  # belt speed shape(1, N)
         rs[:6, :],  # r, shape(q, N)
+        speed + np.zeros((1, len(times))),  # belt speed shape(1, N)
         np.repeat(np.atleast_2d(np.array(list(par_map.values()))).T,
                   len(times), axis=1),  # p, shape(r, N)
     ))
