@@ -62,14 +62,14 @@ def generate_marker_equations(symbolics):
     points = {
         'ank_l': lshank.joint,  # left ankle
         'ank_r': rshank.joint,  # right ankle
-        'hel_l': lfoot.heel,
-        'hel_r': rfoot.heel,
-        'hip_m': trunk.joint,  # hip
-        'kne_l': lthigh.joint,  # left knee
-        'kne_r': rthigh.joint,  # right knee
-        'toe_l': lfoot.toe,
-        'toe_r': rfoot.toe,
-        'tor_m': trunk.mass_center,
+        #'hel_l': lfoot.heel,
+        #'hel_r': rfoot.heel,
+        #'hip_m': trunk.joint,  # hip
+        #'kne_l': lthigh.joint,  # left knee
+        #'kne_r': rthigh.joint,  # right knee
+        #'toe_l': lfoot.toe,
+        #'toe_r': rfoot.toe,
+        #'tor_m': trunk.mass_center,
     }
 
     variables = []
@@ -95,6 +95,7 @@ for i in range(9):
     eom[9+i] = genforce_scale * eom[9+i]
 
 marker_coords, marker_eqs = generate_marker_equations(symbolics)
+ank_lx, ank_ly, ank_rx, ank_ry = marker_coords
 eom = eom.col_join(sm.Matrix(marker_eqs))
 
 states = symbolics.states
@@ -223,61 +224,37 @@ for itorque in range(0, num_angles):
         (num_states+itorque)*num_nodes + inodes)
 
 
-def obj(free, obj_show=False):
+def obj(prob, free, obj_show=False):
     f_torque = (1e-6*obj_Wtorque*np.sum(free[torque_indices]**2)/
                 torque_indices.size)
     f_track = (obj_Wtrack*np.sum((free[angle_indices] - ang_data)**2)/
                angle_indices.size)
-    f_total = f_torque + f_track
+    f_marker_track = 0.0
+    for var, lab in zip((ank_lx, ank_ly, ank_rx, ank_ry),
+                        ('LLM.PosX', 'LLM.PosY', 'RLM.PosX', 'RLM.PosY')):
+        vals = prob.extract_values(var, free)
+        f_marker_track += obj_Wtrack*np.sum(vals - meas[lab])**2
+
+    f_total = f_torque + f_track + f_marker_track
     if obj_show:
         print(f"   obj: {f_total:.3f} = {f_torque:.3f}(torque) + "
               f"{f_track:.3f}(track)")
     return f_total
 
 
-def obj_grad(free):
+def obj_grad(prob, free):
     grad = np.zeros_like(free)
     grad[torque_indices] = (2e-6*obj_Wtorque*free[torque_indices]/
                             torque_indices.size)
     grad[angle_indices] = (2.0*obj_Wtrack*(free[angle_indices] - ang_data)/
                            angle_indices.size)
+
+    for var, lab in zip((ank_lx, ank_ly, ank_rx, ank_ry),
+                        ('LLM.PosX', 'LLM.PosY', 'RLM.PosX', 'RLM.PosY')):
+        vals = prob.extract_values(var, free)
+        prob.fill_free(grad, var, 2.0*obj_Wtrack(vals - meas[lab]))
+
     return grad
-
-
-def create_var_dict(prob, free):
-    """Returns a dictionary that has SymPy dynamic symbols mapped to
-    the solution.
-
-    Parameters
-    ==========
-    prob : Problem
-        Instance of an opty Problem.
-    free : array_like, shape(n*N + q*N,)
-        The free optimization variables.
-
-    Returns
-    =======
-    d : dictionary
-        Maps dynamicsymbols to array of shape(N,)
-
-    """
-    x, r, p = prob.parse_free(free)
-    d = {}
-    for symbol, array in zip(prob.collocator.state_symbols, x):
-        d[symbol] = array
-    for symbol, array in zip(prob.collocator.unknown_trajectories, r):
-        d[symbol] = array
-    for symbol, val in zip(prob.collocator.unknown_parameters, p):
-        d[symbol] = val
-    return d
-
-
-def obj_track_markers(prob, free):
-    d = create_var_dict(prob, free)
-    (np.sum(d['toe_rx'] - meas['RTOE.PosX'])**2 +
-     np.sum(d['toe_ry'] - meas['RTOE.Posy'])**2 +
-     np.sum(d['hee_rx'] - meas['RHEE.PosX'])**2 +
-     np.sum(d['hee_ry'] - meas['RHEE.Posy'])**2)
 
 
 # %%
