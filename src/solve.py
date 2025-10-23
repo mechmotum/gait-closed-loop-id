@@ -60,16 +60,16 @@ def generate_marker_equations(symbolics):
     trunk, rthigh, rshank, rfoot, lthigh, lshank, lfoot = symbolics.segments
 
     points = {
-        'ank_r': rshank.joint,  # right ankle
-        'toe_r': rfoot.toe,
-        'hel_r': rfoot.heel,
-        'kne_r': rthigh.joint,  # right knee
-        'hip': trunk.joint,  # hip
-        'tor': trunk.mass_center,
-        'kne_l': lthigh.joint,  # left knee
         'ank_l': lshank.joint,  # left ankle
+        'ank_r': rshank.joint,  # right ankle
         'hel_l': lfoot.heel,
+        'hel_r': rfoot.heel,
+        'hip_m': trunk.joint,  # hip
+        'kne_l': lthigh.joint,  # left knee
+        'kne_r': rthigh.joint,  # right knee
         'toe_l': lfoot.toe,
+        'toe_r': rfoot.toe,
+        'tor_m': trunk.mass_center,
     }
 
     variables = []
