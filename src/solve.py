@@ -271,10 +271,6 @@ def obj(prob, free, obj_show=False):
             # we only return 49 nodes from measured, so add first to last
             meas_vals = np.hstack((marker_df[lab].values,
                                    marker_df[lab].values[0]))
-            if 'X' in lab:
-                meas_vals = meas_vals - 0.12
-            else:
-                meas_vals = meas_vals - 0.04
             # TODO : Ton divides the whole angle track by num_angles*num_nodes,
             # need to combine this division for angle and marker track.
             f_marker_track += (obj_Wtrack*np.sum((vals - meas_vals)**2)/
@@ -309,10 +305,6 @@ def obj_grad(prob, free):
             vals = prob.extract_values(var, free)
             meas_vals = np.hstack((marker_df[lab].values,
                                    marker_df[lab].values[0]))
-            if 'X' in lab:
-                meas_vals = meas_vals - 0.12
-            else:
-                meas_vals = meas_vals - 0.04
             prob.fill_free(grad, var, 2.0*obj_Wtrack*(vals - meas_vals)/
                            len(vals)/len(marker_coords))
 
@@ -402,12 +394,12 @@ def plot_ankle():
     ax.plot(prob.extract_values(ank_lx, solution),
             prob.extract_values(ank_ly, solution), color='C0',
             label='Model, Left')
-    ax.plot(marker_df['LLM.PosX'] - 0.12, marker_df['LLM.PosY'] - 0.04,
+    ax.plot(marker_df['LLM.PosX'], marker_df['LLM.PosY'],
             color='C0', linestyle='--', label='Data, Left')
     ax.plot(prob.extract_values(ank_rx, solution),
             prob.extract_values(ank_ry, solution), color='C1',
             label='Model, Right')
-    ax.plot(marker_df['RLM.PosX'] - 0.12, marker_df['RLM.PosY'] - 0.04,
+    ax.plot(marker_df['RLM.PosX'], marker_df['RLM.PosY'],
             color='C1', linestyle='--', label='Data, Right')
     ax.set_aspect("equal")
     ax.legend()
