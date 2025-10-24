@@ -151,7 +151,12 @@ def animate(symbolics, xs, rs, h, speed, times, par_map):
     rforces = np.array([eval_rforce(*gci).squeeze() for gci in gait_cycle.T])
     lforces = np.array([eval_lforce(*gci).squeeze() for gci in gait_cycle.T])
 
-    ax2d.plot(times, rforces[:, :2], times, lforces[:, :2])
+    full_cycle_times = np.hstack((times, times[-1] + times))
+    full_gait_cycle = np.hstack((gait_cycle, gait_cycle))
+    ax2d.plot(full_cycle_times,
+              np.vstack((rforces[:, :2], lforces[:, :2])), color='C0')
+    ax2d.plot(full_cycle_times,
+              np.vstack((lforces[:, :2], rforces[:, :2])), color='C1')
     ax2d.grid()
     ax2d.set_ylabel('Force [N]')
     ax2d.set_xlabel('Time [s]')
@@ -161,16 +166,16 @@ def animate(symbolics, xs, rs, h, speed, times, par_map):
     vline = ax2d.axvline(times[0], color='black')
 
     def update(i):
-        scene.evaluate_system(*gait_cycle[:, i])
+        scene.evaluate_system(*full_gait_cycle[:, i])
         scene.update()
-        vline.set_xdata([times[i], times[i]])
+        vline.set_xdata([full_cycle_times[i], full_cycle_times[i]])
         return scene.artists + (vline,)
 
     ani = FuncAnimation(
         fig,
         update,
-        frames=range(len(times)),
-        interval=h*1000,
+        frames=range(len(full_cycle_times)),
+        interval=h*1000,  # milliseconds
     )
 
     return ani
