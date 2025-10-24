@@ -49,11 +49,180 @@ import os
 
 import numpy as np
 import pandas as pd
+import sympy as sm
 import matplotlib.pyplot as plt
 from scipy.interpolate import interp1d
+from pygait2d.segment import time_varying, contact_force
+from symmeplot.matplotlib import Scene3D
+from matplotlib.animation import FuncAnimation
 
 DATAFILE = '020-longitudinal-perturbation-gait-cycles.csv'
-DATAPATH = os.path.join(os.path.dirname(__file__), '..', 'data', DATAFILE)
+DATADIR = os.path.join(os.path.dirname(__file__), '..', 'data')
+DATAPATH = os.path.join(DATADIR, DATAFILE)
+
+
+def animate(symbolics, xs, rs, h, speed, times, par_map):
+
+    ground, origin = symbolics.inertial_frame, symbolics.origin
+    trunk, rthigh, rshank, rfoot, lthigh, lshank, lfoot = symbolics.segments
+
+    fig = plt.figure(figsize=(10.0, 4.0))
+
+    ax3d = fig.add_subplot(1, 2, 1, projection='3d')
+    ax2d = fig.add_subplot(1, 2, 2)
+
+    # hip_proj = origin.locatenew('m', qax*ground.x)
+    # scene = Scene3D(ground, hip_proj, ax=ax3d)
+    scene = Scene3D(ground, origin, ax=ax3d)
+
+    # creates the stick person
+    scene.add_line([
+        rshank.joint,
+        rfoot.toe,
+        rfoot.heel,
+        rshank.joint,
+        rthigh.joint,
+        trunk.joint,
+        trunk.mass_center,
+        trunk.joint,
+        lthigh.joint,
+        lshank.joint,
+        lfoot.heel,
+        lfoot.toe,
+        lshank.joint,
+    ], color="k")
+
+    # creates a moving ground (many points to deal with matplotlib limitation)
+    # ?? can we make the dashed line move to the left?
+    scene.add_line([origin.locatenew('gl', s*ground.x) for s in
+                    np.linspace(-2.0, 2.0)], linestyle='--', color='tab:green',
+                   axlim_clip=True)
+
+    # adds CoM and unit vectors for each body segment
+    for seg in symbolics.segments:
+        scene.add_body(seg.rigid_body)
+
+    # show ground reaction force vectors at the heels and toes, scaled to
+    # visually reasonable length
+    v = symbolics.specifieds[-1]
+    scene.add_vector(contact_force(rfoot.toe, ground, origin, v)/600.0,
+                     rfoot.toe, color="tab:blue")
+    scene.add_vector(contact_force(rfoot.heel, ground, origin, v)/600.0,
+                     rfoot.heel, color="tab:blue")
+    scene.add_vector(contact_force(lfoot.toe, ground, origin, v)/600.0,
+                     lfoot.toe, color="tab:blue")
+    scene.add_vector(contact_force(lfoot.heel, ground, origin, v)/600.0,
+                     lfoot.heel, color="tab:blue")
+
+    scene.lambdify_system(symbolics.states + symbolics.specifieds +
+                          symbolics.constants)
+    gait_cycle = np.vstack((
+        xs,  # q, u shape(2n, N)
+        rs[:6, :],  # r, shape(q, N)
+        speed + np.zeros((1, len(times))),  # belt speed shape(1, N)
+        np.repeat(np.atleast_2d(np.array(list(par_map.values()))).T,
+                  len(times), axis=1),  # p, shape(r, N)
+    ))
+    scene.evaluate_system(*gait_cycle[:, 0])
+
+    scene.axes.set_proj_type("ortho")
+    scene.axes.view_init(90, -90, 0)
+    scene.plot(prettify=False)
+
+    ax3d.set_xlim((-0.8, 0.8))
+    ax3d.set_ylim((-0.2, 1.4))
+    ax3d.set_aspect('equal')
+    for axis in (ax3d.xaxis, ax3d.yaxis, ax3d.zaxis):
+        axis.set_ticklabels([])
+        axis.set_ticks_position("none")
+
+    eval_rforce = sm.lambdify(
+        symbolics.states + symbolics.specifieds + symbolics.constants,
+        (contact_force(rfoot.toe, ground, origin, v) +
+            contact_force(rfoot.heel, ground, origin, v)).to_matrix(ground),
+        cse=True)
+
+    eval_lforce = sm.lambdify(
+        symbolics.states + symbolics.specifieds + symbolics.constants,
+        (contact_force(lfoot.toe, ground, origin, v) +
+            contact_force(lfoot.heel, ground, origin, v)).to_matrix(ground),
+        cse=True)
+
+    rforces = np.array([eval_rforce(*gci).squeeze() for gci in gait_cycle.T])
+    lforces = np.array([eval_lforce(*gci).squeeze() for gci in gait_cycle.T])
+
+    ax2d.plot(times, rforces[:, :2], times, lforces[:, :2])
+    ax2d.grid()
+    ax2d.set_ylabel('Force [N]')
+    ax2d.set_xlabel('Time [s]')
+    ax2d.legend(['Horizontal GRF (r)', 'Vertical GRF (r)',
+                 'Horizontal GRF (l)', 'Vertical GRF (l)'], loc='upper right')
+    ax2d.set_title('Foot Ground Reaction Force Components')
+    vline = ax2d.axvline(times[0], color='black')
+
+    def update(i):
+        scene.evaluate_system(*gait_cycle[:, i])
+        scene.update()
+        vline.set_xdata([times[i], times[i]])
+        return scene.artists + (vline,)
+
+    ani = FuncAnimation(
+        fig,
+        update,
+        frames=range(len(times)),
+        interval=h*1000,
+    )
+
+    return ani
+
+
+def generate_marker_equations(symbolics):
+
+    O, N = symbolics.origin, symbolics.inertial_frame
+    trunk, rthigh, rshank, rfoot, lthigh, lshank, lfoot = symbolics.segments
+
+    # TODO : Only tracking ankle, need to scale model before tracking multiple
+    # markers works.
+    points = {
+        'ank_l': lshank.joint,  # left ankle
+        'ank_r': rshank.joint,  # right ankle
+        #'hel_l': lfoot.heel,
+        #'hel_r': rfoot.heel,
+        #'hip_l': trunk.joint,  # hip
+        #'hip_r': trunk.joint,  # hip
+        #'kne_l': lthigh.joint,  # left knee
+        #'kne_r': rthigh.joint,  # right knee
+        #'toe_l': lfoot.toe,
+        #'toe_r': rfoot.toe,
+    }
+
+    point_data_map = {
+        'ank_l': 'LLM',
+        'ank_r': 'RLM',
+        #'hel_l': 'LHEE',
+        #'hel_r': 'RHEE',
+        #'hip_l': 'LGTRO',
+        #'hip_r': 'RGTRO',
+        #'kne_l': 'LLEK',
+        #'kne_r': 'RLEK',
+        #'toe_l': 'LTOE',
+        #'toe_r': 'RTOE',
+    }
+
+    variables = []
+    equations = []
+    data_labels = []
+
+    for lab, point in points.items():
+        x, y = time_varying(f'{lab}x, {lab}y')
+        variables += [x, y]
+        x_eq = x - point.pos_from(O).dot(N.x)
+        y_eq = y - point.pos_from(O).dot(N.y)
+        equations += [x_eq, y_eq]
+        data_labels += [point_data_map[lab] + '.PosX',
+                        point_data_map[lab] + '.PosY']
+
+    return variables, equations, data_labels
 
 
 def extract_gait_cycle(df, number):

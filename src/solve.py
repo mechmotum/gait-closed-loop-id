@@ -15,17 +15,15 @@ import logging
 from opty import Problem
 from pygait2d import simulate
 from pygait2d.derive import derive_equations_of_motion
-from pygait2d.segment import time_symbol, contact_force, time_varying
-from symmeplot.matplotlib import Scene3D
+from pygait2d.segment import time_symbol
 import matplotlib.pyplot as plt
-from matplotlib.animation import FuncAnimation
 import numpy as np
 import sympy as sm
 
-from utils import (load_winter_data, load_sample_data, DATAPATH,
-                   plot_joint_comparison)
+from utils import (load_winter_data, load_sample_data, DATAPATH, DATADIR,
+                   plot_joint_comparison, generate_marker_equations, animate)
 
-root = logging.getLogger(__name__)
+logger = logging.getLogger(__name__)
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s %(levelname)s %(module)s - %(funcName)s: %(message)s',
@@ -43,7 +41,12 @@ obj_Wtrack = 100  # weight of the mean squared angle tracking error (in rad)
 obj_Wreg = 0.00000001  # weight of the mean squared time derivatives (for regularization)
 TRACK_MARKERS = True
 GAIT_CYCLE_NUM = 45
+# TODO : This y coordinate shift is a manual adjustment that should eventually
+# be handled by scaling the model and determining any mismatch between the
+# ground level in the model and the data.
+ANK_MARK_Y_SHIFT = 0.04
 
+# %% Load measurement data
 if os.path.exists(DATAPATH):
     # load a gait cycle from our data (trial 20)
     (duration, walking_speed, num_angles, ang_data,
@@ -54,47 +57,12 @@ elif not TRACK_MARKERS:
 else:
     raise ValueError("Winter's data does not have markers to track.")
 
-h = duration/(num_nodes - 1)
-
 # %%
 # Derive the equations of motion
-logging.info('Deriving the equations of motion.')
+logger.info('Deriving the equations of motion.')
 symbolics = derive_equations_of_motion(prevent_ground_penetration=False,
                                        treadmill=True, hand_of_god=False)
 eom = symbolics.equations_of_motion
-
-
-def generate_marker_equations(symbolics):
-
-    O, N = symbolics.origin, symbolics.inertial_frame
-    trunk, rthigh, rshank, rfoot, lthigh, lshank, lfoot = symbolics.segments
-
-    points = {
-        'ank_l': lshank.joint,  # left ankle
-        'ank_r': rshank.joint,  # right ankle
-        #'hel_l': lfoot.heel,
-        #'hel_r': rfoot.heel,
-        #'hip_m': trunk.joint,  # hip
-        #'kne_l': lthigh.joint,  # left knee
-        #'kne_r': rthigh.joint,  # right knee
-        #'toe_l': lfoot.toe,
-        #'toe_r': rfoot.toe,
-        #'tor_m': trunk.mass_center,
-    }
-
-    variables = []
-    equations = []
-
-    for lab, point in points.items():
-        x, y = time_varying(f'{lab}x, {lab}y')
-        variables += [x, y]
-        # TODO : Manage belt speed if that matters.
-        x_eq = x - point.pos_from(O).dot(N.x)
-        y_eq = y - point.pos_from(O).dot(N.y)
-        equations += [x_eq, y_eq]
-
-    return variables, equations
-
 
 # do an overall scale, and then a unit conversion to kN and kNm
 eom = eom_scale * eom
@@ -102,37 +70,15 @@ for i in range(9):
     eom[9+i] = genforce_scale * eom[9+i]
 
 # TODO : Should the marker equations be scaled like above?
+# TODO : Generalize for more markers.
 if TRACK_MARKERS:
-    marker_coords, marker_eqs = generate_marker_equations(symbolics)
+    marker_coords, marker_eqs, marker_labels = generate_marker_equations(
+        symbolics)
     ank_lx, ank_ly, ank_rx, ank_ry = marker_coords
     eom = eom.col_join(sm.Matrix(marker_eqs))
 
 #breakpoint()
-print('Number of operations in eom:', sm.count_ops(eom))
-
-states = symbolics.states
-num_states = len(states)
-
-# %%
-# make an initial guess from the standing solution
-logging.info('Making an initial guess.')
-fname = 'standing.csv'
-if not os.path.exists(fname):
-    # executes standing solution and generates 'standing.csv'
-    import solve_standing  # this works, but probably not good python style
-standing_sol = np.loadtxt(fname)
-standing_state = standing_sol[0:num_states].reshape(-1, 1)  # coordinates and speeds as column vector
-state_traj = np.tile(standing_state, (1, num_nodes))  # make num_nodes copies
-tor_traj = np.zeros((num_angles, num_nodes))  # intialize torques to zero
-initial_guess = np.concatenate((state_traj, tor_traj))  # complete trajectory
-if TRACK_MARKERS:
-    # TODO : The marker positions could be calculated from the generalized
-    # coordinates.
-    mar_traj = np.zeros((len(marker_coords), num_nodes))
-    initial_guess = np.concatenate((initial_guess, mar_traj))
-initial_guess = initial_guess.flatten()  # make a single row vector
-np.random.seed(1)  # this makes the result reproducible
-initial_guess = initial_guess + 0.01*np.random.random_sample(initial_guess.size)
+logger.info('Number of operations in eom: {}'.format(sm.count_ops(eom)))
 
 # %%
 # The generalized coordinates are the hip lateral position :math:`q_{ax}` and
@@ -151,8 +97,11 @@ Tb, Tc, Td, Te, Tf, Tg, v = symbolics.specifieds
 # The constants are loaded from a file of realistic geometry, mass, inertia,
 # and foot deformation properties of an adult human.
 par_map = simulate.load_constants(
-    symbolics.constants, os.path.join(os.path.dirname(__file__), '..',
-                                      'data/example_constants.yml'))
+    symbolics.constants, os.path.join(DATADIR, 'example_constants.yml'))
+
+states = symbolics.states
+num_states = len(states)
+h = duration/(num_nodes - 1)
 
 # %%
 # Bound all the states to human realizable ranges.
@@ -181,7 +130,7 @@ bounds.update({k: (-np.deg2rad(40.0), np.deg2rad(40.0))
 bounds.update({k: (-np.deg2rad(400.0), np.deg2rad(400.0))
                for k in [ua, ub, uc, ud, ue, uf, ug]})
 # all joint torques
-bounds.update({k: (-1000.0, 1000.0)
+bounds.update({k: (-600.0, 600.0)
                for k in [Tb, Tc, Td, Te, Tf, Tg]})
 
 # %%
@@ -258,19 +207,21 @@ def obj(prob, free, obj_show=False):
                 torque_indices.size)
     f_track = (obj_Wtrack*np.sum((free[angle_indices] - ang_data)**2)/
                angle_indices.size)
-    # regularization cost is the mean of squared time derivatives of all variables
+    # regularization cost is the mean of squared time derivatives of all
+    # variables
     f_reg = (obj_Wreg*np.sum((free[reg_indices+1]-free[reg_indices])**2)/
              reg_indices.size/h**2)
     f_total = f_torque + f_track + f_reg
 
     if TRACK_MARKERS:
         f_marker_track = 0.0
-        for var, lab in zip((ank_lx, ank_ly, ank_rx, ank_ry),
-                            ('LLM.PosX', 'LLM.PosY', 'RLM.PosX', 'RLM.PosY')):
+        for var, lab in zip(marker_coords, marker_labels):
             vals = prob.extract_values(var, free)
             # we only return 49 nodes from measured, so add first to last
             meas_vals = np.hstack((marker_df[lab].values,
                                    marker_df[lab].values[0]))
+            if 'Y' in lab:
+                meas_vals -= ANK_MARK_Y_SHIFT
             # TODO : Ton divides the whole angle track by num_angles*num_nodes,
             # need to combine this division for angle and marker track.
             f_marker_track += (obj_Wtrack*np.sum((vals - meas_vals)**2)/
@@ -300,11 +251,12 @@ def obj_grad(prob, free):
     # the regularization gradient could be coded more efficiently, but probably not worth doing
 
     if TRACK_MARKERS:
-        for var, lab in zip((ank_lx, ank_ly, ank_rx, ank_ry),
-                            ('LLM.PosX', 'LLM.PosY', 'RLM.PosX', 'RLM.PosY')):
+        for var, lab in zip(marker_coords, marker_labels):
             vals = prob.extract_values(var, free)
             meas_vals = np.hstack((marker_df[lab].values,
                                    marker_df[lab].values[0]))
+            if 'Y' in lab:
+                meas_vals -= ANK_MARK_Y_SHIFT
             prob.fill_free(grad, var, 2.0*obj_Wtrack*(vals - meas_vals)/
                            len(vals)/len(marker_coords))
 
@@ -313,7 +265,7 @@ def obj_grad(prob, free):
 
 # %%
 # create the optimization problem
-logging.info('Creating the opty problem.')
+logger.info('Creating the opty problem.')
 
 # Create a belt velocity signal v(t)
 traj_map = {
@@ -338,6 +290,28 @@ prob.add_option('tol', 1e-3)
 prob.add_option('constr_viol_tol', 1e-4)
 prob.add_option('print_level', 0)
 
+# %%
+# make an initial guess from the standing solution
+logger.info('Making an initial guess.')
+fname = 'standing.csv'
+if not os.path.exists(fname):
+    logger.info('Solving standing problem.')
+    # executes standing solution and generates 'standing.csv'
+    import solve_standing  # this works, but probably not good python style
+standing_sol = np.loadtxt(fname)
+standing_state = standing_sol[0:num_states].reshape(-1, 1)  # coordinates and speeds as column vector
+state_traj = np.tile(standing_state, (1, num_nodes))  # make num_nodes copies
+tor_traj = np.zeros((num_angles, num_nodes))  # intialize torques to zero
+initial_guess = np.concatenate((state_traj, tor_traj))  # complete trajectory
+if TRACK_MARKERS:
+    # TODO : The marker positions could be calculated from the generalized
+    # coordinates.
+    mar_traj = np.zeros((len(marker_coords), num_nodes))
+    initial_guess = np.concatenate((initial_guess, mar_traj))
+initial_guess = initial_guess.flatten()  # make a single row vector
+np.random.seed(1)  # this makes the result reproducible
+initial_guess = initial_guess + 0.01*np.random.random_sample(initial_guess.size)
+
 
 # %%
 # solve the gait optimization problem for given belt speed
@@ -347,12 +321,12 @@ def solve_gait(speed, initial_guess=None):
     traj_map[v] = speed*np.ones(num_nodes)
 
     # solve
-    print(datetime.now().strftime("%H:%M:%S") +
-          f" solving for {speed:.3f} m/s")
+    logger.info(datetime.now().strftime("%H:%M:%S") +
+                f" solving for {speed:.3f} m/s")
     solution, info = prob.solve(initial_guess)
     # we accept solve_succeeded (0) and solved_to_acceptable_level (1)
     if info['status'] < 0:
-        print("IPOPT was not successful.")
+        logger.info("IPOPT was not successful.")
         #breakpoint()
 
     # show the final objective function value and its contributions
@@ -362,7 +336,7 @@ def solve_gait(speed, initial_guess=None):
 
 
 # solve for a series of increasing speeds, ending at the required speed
-for speed in np.linspace(0.0, walking_speed, num=10):
+for speed in np.linspace(0.1, walking_speed, num=10):
     solution = solve_gait(speed, initial_guess)
     initial_guess = solution  # use this solution as guess for the next problem
 
@@ -394,12 +368,12 @@ def plot_ankle():
     ax.plot(prob.extract_values(ank_lx, solution),
             prob.extract_values(ank_ly, solution), color='C0',
             label='Model, Left')
-    ax.plot(marker_df['LLM.PosX'], marker_df['LLM.PosY'],
+    ax.plot(marker_df['LLM.PosX'], marker_df['LLM.PosY'] - ANK_MARK_Y_SHIFT,
             color='C0', linestyle='--', label='Data, Left')
     ax.plot(prob.extract_values(ank_rx, solution),
             prob.extract_values(ank_ry, solution), color='C1',
             label='Model, Right')
-    ax.plot(marker_df['RLM.PosX'], marker_df['RLM.PosY'],
+    ax.plot(marker_df['RLM.PosX'], marker_df['RLM.PosY'] - ANK_MARK_Y_SHIFT,
             color='C1', linestyle='--', label='Data, Right')
     ax.set_aspect("equal")
     ax.legend()
@@ -409,131 +383,13 @@ def plot_ankle():
 if TRACK_MARKERS:
     plot_ankle()
 
-
 plt.show()
-
-
-def animate():
-
-    ground, origin = symbolics.inertial_frame, symbolics.origin
-    trunk, rthigh, rshank, rfoot, lthigh, lshank, lfoot = symbolics.segments
-
-    fig = plt.figure(figsize=(10.0, 4.0))
-
-    ax3d = fig.add_subplot(1, 2, 1, projection='3d')
-    ax2d = fig.add_subplot(1, 2, 2)
-
-    # hip_proj = origin.locatenew('m', qax*ground.x)
-    # scene = Scene3D(ground, hip_proj, ax=ax3d)
-    scene = Scene3D(ground, origin, ax=ax3d)
-
-    # creates the stick person
-    scene.add_line([
-        rshank.joint,
-        rfoot.toe,
-        rfoot.heel,
-        rshank.joint,
-        rthigh.joint,
-        trunk.joint,
-        trunk.mass_center,
-        trunk.joint,
-        lthigh.joint,
-        lshank.joint,
-        lfoot.heel,
-        lfoot.toe,
-        lshank.joint,
-    ], color="k")
-
-    # creates a moving ground (many points to deal with matplotlib limitation)
-    # ?? can we make the dashed line move to the left?
-    scene.add_line([origin.locatenew('gl', s*ground.x) for s in
-                    np.linspace(-2.0, 2.0)], linestyle='--', color='tab:green',
-                   axlim_clip=True)
-
-    # adds CoM and unit vectors for each body segment
-    for seg in symbolics.segments:
-        scene.add_body(seg.rigid_body)
-
-    # show ground reaction force vectors at the heels and toes, scaled to
-    # visually reasonable length
-    scene.add_vector(contact_force(rfoot.toe, ground, origin, v)/600.0,
-                     rfoot.toe, color="tab:blue")
-    scene.add_vector(contact_force(rfoot.heel, ground, origin, v)/600.0,
-                     rfoot.heel, color="tab:blue")
-    scene.add_vector(contact_force(lfoot.toe, ground, origin, v)/600.0,
-                     lfoot.toe, color="tab:blue")
-    scene.add_vector(contact_force(lfoot.heel, ground, origin, v)/600.0,
-                     lfoot.heel, color="tab:blue")
-
-    scene.lambdify_system(states + symbolics.specifieds + symbolics.constants)
-    gait_cycle = np.vstack((
-        xs,  # q, u shape(2n, N)
-        rs[:6, :],  # r, shape(q, N)
-        speed + np.zeros((1, len(times))),  # belt speed shape(1, N)
-        np.repeat(np.atleast_2d(np.array(list(par_map.values()))).T,
-                  len(times), axis=1),  # p, shape(r, N)
-    ))
-    scene.evaluate_system(*gait_cycle[:, 0])
-
-    scene.axes.set_proj_type("ortho")
-    scene.axes.view_init(90, -90, 0)
-    scene.plot(prettify=False)
-
-    ax3d.set_xlim((-0.8, 0.8))
-    ax3d.set_ylim((-0.2, 1.4))
-    ax3d.set_aspect('equal')
-    for axis in (ax3d.xaxis, ax3d.yaxis, ax3d.zaxis):
-        axis.set_ticklabels([])
-        axis.set_ticks_position("none")
-
-    eval_rforce = sm.lambdify(
-        states + symbolics.specifieds + symbolics.constants,
-        (contact_force(rfoot.toe, ground, origin, v) +
-            contact_force(rfoot.heel, ground, origin, v)).to_matrix(ground),
-        cse=True)
-
-    eval_lforce = sm.lambdify(
-        states + symbolics.specifieds + symbolics.constants,
-        (contact_force(lfoot.toe, ground, origin, v) +
-            contact_force(lfoot.heel, ground, origin, v)).to_matrix(ground),
-        cse=True)
-
-    rforces = np.array([eval_rforce(*gci).squeeze() for gci in gait_cycle.T])
-    lforces = np.array([eval_lforce(*gci).squeeze() for gci in gait_cycle.T])
-
-    ax2d.plot(times, rforces[:, :2], times, lforces[:, :2])
-    ax2d.grid()
-    ax2d.set_ylabel('Force [N]')
-    ax2d.set_xlabel('Time [s]')
-    ax2d.legend(['Horizontal GRF (r)', 'Vertical GRF (r)',
-                 'Horizontal GRF (l)', 'Vertical GRF (l)'], loc='upper right')
-    ax2d.set_title('Foot Ground Reaction Force Components')
-    vline = ax2d.axvline(times[0], color='black')
-
-    def update(i):
-        scene.evaluate_system(*gait_cycle[:, i])
-        scene.update()
-        vline.set_xdata([times[i], times[i]])
-        return scene.artists + (vline,)
-
-    ani = FuncAnimation(
-        fig,
-        update,
-        frames=range(len(times)),
-        interval=h*1000,
-    )
-
-    return ani
-
 
 # %%
 # Use symmeplot to make an animation of the motion.
 if make_animation:
     xs, rs, _ = prob.parse_free(solution)
-    times = np.linspace(0.0, (num_nodes - 1)*h, num=num_nodes)
-
-    animation = animate()
-
+    times = prob.time_vector(solution)
+    animation = animate(symbolics, xs, rs, h, walking_speed, times, par_map)
     animation.save('human_gait.gif', fps=int(1.0/h))
-
     plt.show()
