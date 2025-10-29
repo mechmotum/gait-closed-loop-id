@@ -102,6 +102,7 @@ prob = Problem(
     instance_constraints=instance_constraints,
     bounds=bounds,
     time_symbol=time_symbol,
+    tmp_dir='gait_codegen',  # enables binary caching
 )
 
 # %%

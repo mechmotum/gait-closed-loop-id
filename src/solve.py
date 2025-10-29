@@ -216,7 +216,7 @@ def obj(prob, free, obj_show=False):
     if TRACK_MARKERS:
         f_marker_track = 0.0
         for var, lab in zip(marker_coords, marker_labels):
-            vals = prob.extract_values(var, free)
+            vals = prob.extract_values(free, var)
             # we only return 49 nodes from measured, so add first to last
             meas_vals = np.hstack((marker_df[lab].values,
                                    marker_df[lab].values[0]))
@@ -252,13 +252,13 @@ def obj_grad(prob, free):
 
     if TRACK_MARKERS:
         for var, lab in zip(marker_coords, marker_labels):
-            vals = prob.extract_values(var, free)
+            vals = prob.extract_values(free, var)
             meas_vals = np.hstack((marker_df[lab].values,
                                    marker_df[lab].values[0]))
             if 'Y' in lab:
                 meas_vals -= ANK_MARK_Y_SHIFT
-            prob.fill_free(grad, var, 2.0*obj_Wtrack*(vals - meas_vals)/
-                           len(vals)/len(marker_coords))
+            prob.fill_free(grad, 2.0*obj_Wtrack*(vals - meas_vals)/
+                           len(vals)/len(marker_coords), var)
 
     return grad
 
@@ -284,6 +284,7 @@ prob = Problem(
     instance_constraints=instance_constraints,
     bounds=bounds,
     time_symbol=time_symbol,
+    tmp_dir='gait_codegen',  # enables binary caching
 )
 prob.add_option('max_iter', 3000)
 prob.add_option('tol', 1e-3)
@@ -365,13 +366,13 @@ plot_joint_comparison(t, ang, tor, dat)
 
 def plot_ankle():
     fig, ax = plt.subplots()
-    ax.plot(prob.extract_values(ank_lx, solution),
-            prob.extract_values(ank_ly, solution), color='C0',
+    ax.plot(prob.extract_values(solution, ank_lx),
+            prob.extract_values(solution, ank_ly), color='C0',
             label='Model, Left')
     ax.plot(marker_df['LLM.PosX'], marker_df['LLM.PosY'] - ANK_MARK_Y_SHIFT,
             color='C0', linestyle='--', label='Data, Left')
-    ax.plot(prob.extract_values(ank_rx, solution),
-            prob.extract_values(ank_ry, solution), color='C1',
+    ax.plot(prob.extract_values(solution, ank_rx),
+            prob.extract_values(solution, ank_ry), color='C1',
             label='Model, Right')
     ax.plot(marker_df['RLM.PosX'], marker_df['RLM.PosY'] - ANK_MARK_Y_SHIFT,
             color='C1', linestyle='--', label='Data, Right')
