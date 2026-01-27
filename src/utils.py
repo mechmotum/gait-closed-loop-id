@@ -56,9 +56,11 @@ from pygait2d.segment import time_varying, contact_force
 from symmeplot.matplotlib import Scene3D
 from matplotlib.animation import FuncAnimation
 
-DATAFILE = '020-longitudinal-perturbation-gait-cycles.csv'
+GAITFILE = '020-longitudinal-perturbation-gait-cycles.csv'
+CALIBFILE = '020-calibration-pose.csv'
 DATADIR = os.path.join(os.path.dirname(__file__), '..', 'data')
-DATAPATH = os.path.join(DATADIR, DATAFILE)
+GAITDATAPATH = os.path.join(DATADIR, GAITFILE)
+CALIBDATAPATH = os.path.join(DATADIR, CALIBFILE)
 
 
 def animate(symbolics, xs, rs, h, speed, times, par_map):
@@ -329,7 +331,7 @@ def load_winter_data(num_nodes):
 
 
 def load_sample_data(num_nodes, gait_cycle_number=100):
-    master_df = pd.read_csv(DATAPATH)
+    master_df = pd.read_csv(GAITDATAPATH)
     df = extract_gait_cycle(master_df, gait_cycle_number)
 
     df = df.iloc[:11, :]  # take 0% to 50%
@@ -431,8 +433,94 @@ def plot_joint_comparison(t, angles, torques, angles_meas):
     return axes
 
 
+def scale_body_segment_parameters():
+
+    df = pd.read_csv(CALIBDATAPATH)
+
+    df_mkrs = df[df.columns[df.columns.str.endswith('PosX') |
+                            df.columns.str.endswith('PosY') |
+                            df.columns.str.endswith('PosZ')]]
+
+    x = df_mkrs[df_mkrs.columns[df_mkrs.columns.str.endswith('PosX')]]
+    y = df_mkrs[df_mkrs.columns[df_mkrs.columns.str.endswith('PosY')]]
+    z = df_mkrs[df_mkrs.columns[df_mkrs.columns.str.endswith('PosZ')]]
+
+    fig = plt.figure()
+    ax = fig.add_subplot(projection='3d')
+    ax.scatter(x.mean(), y.mean(), z.mean())
+    ax.set_aspect('equal')
+
+    plt.show()
+
+
+    def length(prox_marker, dist_marker):
+        x1 = df_mkrs[prox_marker + '.PosX']
+        y1 = df_mkrs[prox_marker + '.PosY']
+        z1 = df_mkrs[prox_marker + '.PosZ']
+        x2 = df_mkrs[dist_marker + '.PosX']
+        y2 = df_mkrs[dist_marker + '.PosY']
+        z2 = df_mkrs[dist_marker + '.PosZ']
+        return np.sqrt((x2 - x1)**2 + (y2 - y1)**2 + (z2 - z1)**2)
+
+    #0: Shoulder
+    #1: Greater trochanter
+    #2: Lateral epicondyle of knee
+    #3: Lateral malleolus
+    #4: Heel (placed at same height as marker 6)
+    #5: Head of 5th metatarsal
+
+    len_thigh = np.mean((
+        length('RGTRO', 'RLEK').mean(),  # right thigh
+        length('LGTRO', 'LLEK').mean(),  # left thigh
+    ))
+
+    len_shank = np.mean((
+        length('RLEK', 'RLM').mean(),  # right shank
+        length('LLEK', 'LLM').mean(),  # left shank
+    ))
+
+    len_foot = np.mean((
+        length('RHEE', 'RMT5'),  # right foot
+        length('LHEE', 'LMT5'),  # left foot
+    ))
+
+    #Segment('thigh', 1, 1, 2, 1, 0.1000, 0.433, 0.323,  1)
+    #Segment('shank', 2, 2, 3, 2, 0.0465, 0.433, 0.302, -1)
+    #Segment('foot',  3, 4, 5, 3, 0.0145, 0.500, 0.475, -1)
+
+    mass = 70.0
+    constants = {
+        # rthigh, b
+        'mb': 0.1*mass,
+        'lb': len_thigh,
+        'xb': 0.0,
+        'yb': 0.433*len_thigh,  # TODO: from proximal or distal?
+        # rshank, c
+        'mc': 0.0465*mass,
+        'lc': len_shank,
+        'xc': 0.0,
+        'yc': 0.433*len_shank,  # TODO: from proximal or distal?
+        # rfoot, d
+        'md': 0.0145*mass,
+        # lthigh, e
+        'le': len_thigh,
+        'me': 0.1*mass,
+        'xe': 0.0,
+        'ye': 0.433*len_thigh,  # TODO: from proximal or distal?
+        # lshank, f
+        'mf': 0.0465*mass,
+        'lf': len_shank,
+        'xf': 0.0,
+        'yf': 0.433*len_shank,  # TODO: from proximal or distal?
+        # lfoot, g
+        'mg': 0.0145*mass,
+    }
+
+    return constants
+
+
 if __name__ == "__main__":
-    master_df = pd.read_csv(DATAPATH)
+    master_df = pd.read_csv(GAITDATAPATH)
     df = extract_gait_cycle(master_df, 100)
     plot_points(df)
     plt.show()
