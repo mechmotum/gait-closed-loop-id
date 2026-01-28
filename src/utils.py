@@ -508,40 +508,40 @@ def scale_body_segment_parameters(calibration_csv_path, subject_mass,
     constants = {
         # trunk, a
         'ma': mass_trunk,
-        'ia': 0.496**2*mass_trunk,
+        'ia': (0.496*len_trunk)**2*mass_trunk,
         'xa': 0.0,
         'ya': 0.626*len_trunk,  # TODO: positive or negative? distal or proximal?
         # rthigh, b
         'mb': mass_thigh,
-        'ib': 0.323**2*mass_thigh,
+        'ib': (0.323*len_thigh)**2*mass_thigh,
         'xb': 0.0,
         'yb': -0.433*len_thigh,
         'lb': len_thigh,
         # rshank, c
         'mc': mass_shank,
-        'ic': 0.302**2*mass_shank,
+        'ic': (0.302*len_shank)**2*mass_shank,
         'xc': 0.0,
         'yc': -0.433*len_shank,
         'lc': len_shank,
         # rfoot, d
         'md': mass_foot,
-        'id': 0.475**2*mass_foot,
+        'id': (0.475*len_foot)**2*mass_foot,
         # TODO : figure out how to locate heel, toe, and mass center
         # lthigh, e
         'me': mass_thigh,
-        'ie': 0.323**2*mass_thigh,
+        'ie': (0.323*len_thigh)**2*mass_thigh,
         'xe': 0.0,
         'ye': -0.433*len_thigh,
         'le': len_thigh,
         # lshank, f
         'mf': mass_shank,
-        'if': 0.302**2*mass_shank,
+        'if': (0.302*len_shank)**2*mass_shank,
         'xf': 0.0,
         'yf': -0.433*len_shank,
         'lf': len_shank,
         # lfoot, g
         'mg': mass_foot,
-        'ig': 0.475**2*mass_foot,
+        'ig': (0.475*len_foot)**2*mass_foot,
         # TODO : figure out how to locate heel, toe, and mass center
     }
 
