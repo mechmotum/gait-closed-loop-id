@@ -450,6 +450,9 @@ def scale_body_segment_parameters(calibration_csv_path, subject_mass,
         fig = plt.figure()
         ax = fig.add_subplot(projection='3d')
         ax.scatter(x.mean(), y.mean(), z.mean())
+        ax.set_xlabel('x')
+        ax.set_ylabel('y')
+        ax.set_zlabel('z')
         ax.set_aspect('equal')
         plt.show()
 
@@ -494,16 +497,39 @@ def scale_body_segment_parameters(calibration_csv_path, subject_mass,
     ))
 
     len_foot = np.mean((
-        length('RHEE', 'RMT5'),  # right foot
-        length('LHEE', 'LMT5'),  # left foot
+        length('RHEE', 'RTOE'),  # right foot
+        length('LHEE', 'LTOE'),  # left foot
     ))
 
-    # TODO : Maybe make the trunk mass the remainder amount, as what is below
-    # this only adds to 0.9*subject_mass.
+    def foot_dimensions():
+        # positive x points heel to toe
+        # positive y points ground to sky
+        hxd = -(df_mkrs['RLM.PosX'] - df_mkrs['RHEE.PosX'])  # - marker_diameter/2
+        hxd = hxd.mean()
+        txd = df_mkrs['RMT5.PosX'] - df_mkrs['RLM.PosX']
+        txd = txd.mean()
+        fyd = -df_mkrs['RLM.PosY']
+        fyd = fyd.mean()
+        xd = 0.5*len_foot + hxd
+        yd = 0.5*fyd
+
+        hxg = -(df_mkrs['LLM.PosX'] - df_mkrs['LHEE.PosX'])  # - marker_diameter/2
+        hxg = hxg.mean()
+        txg = df_mkrs['LMT5.PosX'] - df_mkrs['LLM.PosX']
+        txg = txg.mean()
+        fyg = -df_mkrs['LLM.PosY']
+        fyg = fyg.mean()
+        xg = 0.5*len_foot + hxg
+        yg = 0.5*fyg
+
+        return (xg + xd)/2, (yg + yd)/2, (hxg + hxd)/2, (txg + txd)/2, (fyg + fyd)/2
+
     mass_trunk = 0.678*subject_mass
     mass_thigh = 0.1*subject_mass
     mass_shank = 0.0465*subject_mass
     mass_foot = 0.0145*subject_mass
+
+    x, y, hx, tx, fy = foot_dimensions()
 
     constants = {
         # trunk, a
@@ -526,7 +552,11 @@ def scale_body_segment_parameters(calibration_csv_path, subject_mass,
         # rfoot, d
         'md': mass_foot,
         'id': (0.475*len_foot)**2*mass_foot,
-        # TODO : figure out how to locate heel, toe, and mass center
+        'xd': x,
+        'yd': y,
+        'hxd': hx,
+        'txd': tx,
+        'fyd': fy,
         # lthigh, e
         'me': mass_thigh,
         'ie': (0.323*len_thigh)**2*mass_thigh,
@@ -542,7 +572,11 @@ def scale_body_segment_parameters(calibration_csv_path, subject_mass,
         # lfoot, g
         'mg': mass_foot,
         'ig': (0.475*len_foot)**2*mass_foot,
-        # TODO : figure out how to locate heel, toe, and mass center
+        'xg': x,
+        'yg': y,
+        'hxg': hx,
+        'txg': tx,
+        'fyg': fy,
     }
 
     return constants
