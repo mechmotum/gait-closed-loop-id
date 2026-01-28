@@ -433,9 +433,10 @@ def plot_joint_comparison(t, angles, torques, angles_meas):
     return axes
 
 
-def scale_body_segment_parameters():
+def scale_body_segment_parameters(calibration_csv_path, subject_mass,
+                                  plot=False):
 
-    df = pd.read_csv(CALIBDATAPATH)
+    df = pd.read_csv(calibration_csv_path)
 
     df_mkrs = df[df.columns[df.columns.str.endswith('PosX') |
                             df.columns.str.endswith('PosY') |
@@ -445,15 +446,15 @@ def scale_body_segment_parameters():
     y = df_mkrs[df_mkrs.columns[df_mkrs.columns.str.endswith('PosY')]]
     z = df_mkrs[df_mkrs.columns[df_mkrs.columns.str.endswith('PosZ')]]
 
-    fig = plt.figure()
-    ax = fig.add_subplot(projection='3d')
-    ax.scatter(x.mean(), y.mean(), z.mean())
-    ax.set_aspect('equal')
-
-    plt.show()
-
+    if plot:
+        fig = plt.figure()
+        ax = fig.add_subplot(projection='3d')
+        ax.scatter(x.mean(), y.mean(), z.mean())
+        ax.set_aspect('equal')
+        plt.show()
 
     def length(prox_marker, dist_marker):
+        """Returns the Euclidean distances between two markers versus time."""
         x1 = df_mkrs[prox_marker + '.PosX']
         y1 = df_mkrs[prox_marker + '.PosY']
         z1 = df_mkrs[prox_marker + '.PosZ']
@@ -462,12 +463,25 @@ def scale_body_segment_parameters():
         z2 = df_mkrs[dist_marker + '.PosZ']
         return np.sqrt((x2 - x1)**2 + (y2 - y1)**2 + (z2 - z1)**2)
 
-    #0: Shoulder
-    #1: Greater trochanter
-    #2: Lateral epicondyle of knee
-    #3: Lateral malleolus
-    #4: Heel (placed at same height as marker 6)
-    #5: Head of 5th metatarsal
+    # Winter Table 4.1 selected rows:
+    # Foot, Lateral malleolus/head metatarsal II, 0.0145
+    # Leg, Femoral condyles/medial malleolus, 0.433
+    # Thigh, Greater trochanter/femoral condyles, 0.1
+    # Head, arms, and trunk (HAT), Greater trochater/glenohumeral joint*, 0.678
+
+    # Markers in our set:
+    # Shoulder, DELT, the DELT marker is the closest to the glenohumeral joint
+    # Greater trochanter, GTRO
+    # Lateral epicondyle of knee, LEK
+    # Lateral malleolus, LM
+    # Heel (placed at same height as marker 6), HEE
+    # Head of 5th metatarsal, MT5
+
+    # These calculate average segment lengths, assuming left/right symmetry.
+    len_trunk = np.mean((
+        length('RDELT', 'RGTRO').mean(),  # right trunk
+        length('LDELT', 'LGTRO').mean(),  # left trunk
+    ))
 
     len_thigh = np.mean((
         length('RGTRO', 'RLEK').mean(),  # right thigh
@@ -484,42 +498,58 @@ def scale_body_segment_parameters():
         length('LHEE', 'LMT5'),  # left foot
     ))
 
-    #Segment('thigh', 1, 1, 2, 1, 0.1000, 0.433, 0.323,  1)
-    #Segment('shank', 2, 2, 3, 2, 0.0465, 0.433, 0.302, -1)
-    #Segment('foot',  3, 4, 5, 3, 0.0145, 0.500, 0.475, -1)
+    # TODO : Maybe make the trunk mass the remainder amount, as what is below
+    # this only adds to 0.9*subject_mass.
+    mass_trunk = 0.678*subject_mass
+    mass_thigh = 0.1*subject_mass
+    mass_shank = 0.0465*subject_mass
+    mass_foot = 0.0145*subject_mass
 
-    mass = 70.0
     constants = {
+        # trunk, a
+        'ma': mass_trunk,
+        'ia': 0.496**2*mass_trunk,
+        'xa': 0.0,
+        'ya': -0.626*len_trunk,
         # rthigh, b
-        'mb': 0.1*mass,
-        'lb': len_thigh,
+        'mb': mass_thigh,
+        'ib': 0.323**2*mass_thigh,
         'xb': 0.0,
-        'yb': 0.433*len_thigh,  # TODO: from proximal or distal?
+        'yb': -0.433*len_thigh,
+        'lb': len_thigh,
         # rshank, c
-        'mc': 0.0465*mass,
-        'lc': len_shank,
+        'mc': mass_shank,
+        'ic': 0.302**2*mass_shank,
         'xc': 0.0,
-        'yc': 0.433*len_shank,  # TODO: from proximal or distal?
+        'yc': -0.433*len_shank,
+        'lc': len_shank,
         # rfoot, d
-        'md': 0.0145*mass,
+        'md': mass_foot,
+        'id': 0.475**2*mass_foot,
+        # TODO : figure out how to locate heel, toe, and mass center
         # lthigh, e
-        'le': len_thigh,
-        'me': 0.1*mass,
+        'me': mass_thigh,
+        'ie': 0.323**2*mass_thigh,
         'xe': 0.0,
-        'ye': 0.433*len_thigh,  # TODO: from proximal or distal?
+        'ye': -0.433*len_thigh,
+        'le': len_thigh,
         # lshank, f
-        'mf': 0.0465*mass,
-        'lf': len_shank,
+        'mf': mass_shank,
+        'if': 0.302**2*mass_shank,
         'xf': 0.0,
-        'yf': 0.433*len_shank,  # TODO: from proximal or distal?
+        'yf': -0.433*len_shank,
+        'lf': len_shank,
         # lfoot, g
-        'mg': 0.0145*mass,
+        'mg': mass_foot,
+        'ig': 0.475**2*mass_foot,
+        # TODO : figure out how to locate heel, toe, and mass center
     }
 
     return constants
 
 
 if __name__ == "__main__":
+    constants = scale_body_segment_parameters(CALIBDATAPATH, 70.0)
     master_df = pd.read_csv(GAITDATAPATH)
     df = extract_gait_cycle(master_df, 100)
     plot_points(df)

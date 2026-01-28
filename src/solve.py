@@ -20,8 +20,9 @@ import matplotlib.pyplot as plt
 import numpy as np
 import sympy as sm
 
-from utils import (load_winter_data, load_sample_data, DATAPATH, DATADIR,
-                   plot_joint_comparison, generate_marker_equations, animate)
+from utils import (load_winter_data, load_sample_data, GAITDATAPATH, DATADIR,
+                   plot_joint_comparison, generate_marker_equations, animate,
+                   CALIBDATAPATH, scale_body_segment_parameters)
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(
@@ -47,7 +48,7 @@ GAIT_CYCLE_NUM = 45
 ANK_MARK_Y_SHIFT = 0.04
 
 # %% Load measurement data
-if os.path.exists(DATAPATH):
+if os.path.exists(GAITDATAPATH):
     # load a gait cycle from our data (trial 20)
     (duration, walking_speed, num_angles, ang_data,
      marker_df) = load_sample_data(num_nodes, gait_cycle_number=GAIT_CYCLE_NUM)
@@ -98,6 +99,13 @@ Tb, Tc, Td, Te, Tf, Tg, v = symbolics.specifieds
 # and foot deformation properties of an adult human.
 par_map = simulate.load_constants(
     symbolics.constants, os.path.join(DATADIR, 'example_constants.yml'))
+# TODO : subject mass (70) should be loaded from meta data files.
+scaled_par = scale_body_segment_parameters(CALIBDATAPATH, 70.0)
+for c in symbolics.constants:
+    try:
+        par_map[c] = scaled_par[c.name]
+    except KeyError:
+        pass
 
 states = symbolics.states
 num_states = len(states)
