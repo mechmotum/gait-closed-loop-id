@@ -531,7 +531,7 @@ def body_segment_parameters_from_calibration(calibration_csv_path,
         ))
 
     # Markers in our set:
-    # Shoulder, DELT, the DELT marker is the closest to the glenohumeral joint
+    # Shoulder, SHO, acromion marker is 35 mm above the glenohumeral joint
     # Greater trochanter, GTRO
     # Lateral epicondyle of knee, LEK
     # Lateral malleolus, LM
@@ -539,27 +539,23 @@ def body_segment_parameters_from_calibration(calibration_csv_path,
     # Head of 5th metatarsal, MT5
     # Tip of big toe, TOE
 
-    len_trunk = mean_length('DELT', 'GTRO', project='z')
+    # Location of glenohumeral joint is 35 mm below the acromion (De Leva, J
+    # Biomech 1996)
+    len_trunk = mean_length('SHO', 'GTRO', project='z') - 0.035
     len_thigh = mean_length('GTRO', 'LEK', project='z')
     len_shank = mean_length('LEK', 'LM', project='z')
     len_foot = mean_length('HEE', 'TOE', project='z')
 
     def foot_dimensions():
-        hxd = -(df['RLM.PosX'] - df['RHEE.PosX'])  # - marker_diameter/2
-        hxd = hxd.mean()
-        txd = df['RMT5.PosX'] - df['RLM.PosX'] #+ (df['RTOE.PosX'] - df['RMT5.PosX'])/2
-        txd = txd.mean()
-        fyd = -df['RLM.PosY']
-        fyd = fyd.mean()
+        hxd = -(df['RLM.PosX'] - df['RHEE.PosX']).mean()  # - marker_diameter/2
+        txd = (df['RMT5.PosX'] - df['RLM.PosX']).mean()
+        fyd = -df['RLM.PosY'].mean()
         xd = 0.5*len_foot + hxd
         yd = 0.5*fyd
 
-        hxg = -(df['LLM.PosX'] - df['LHEE.PosX'])  # - marker_diameter/2
-        hxg = hxg.mean()
-        txg = df['LMT5.PosX'] - df['LLM.PosX'] #+ (df['LTOE.PosX'] - df['LMT5.PosX'])/2
-        txg = txg.mean()
-        fyg = -df['LLM.PosY']
-        fyg = fyg.mean()
+        hxg = -(df['LLM.PosX'] - df['LHEE.PosX']).mean()  # - marker_diameter/2
+        txg = (df['LMT5.PosX'] - df['LLM.PosX']).mean()
+        fyg = -df['LLM.PosY'].mean()
         xg = 0.5*len_foot + hxg
         yg = 0.5*fyg
 
@@ -588,9 +584,9 @@ def body_segment_parameters_from_calibration(calibration_csv_path,
     constants = {
         # trunk, a
         'ma': mass_trunk,
-        'ia': mass_trunk*(0.496*len_trunk)**2,  # TODO : check value, different than example constants and Ton's
+        'ia': mass_trunk*(0.496*len_trunk)**2,
         'xa': 0.0,
-        'ya': 0.626*len_trunk,  # TODO: positive or negative? distal or proximal?
+        'ya': 0.626*len_trunk,  # TODO: distal or proximal?
         # rthigh, b
         'mb': mass_thigh,
         'ib': mass_thigh*(0.323*len_thigh)**2,
