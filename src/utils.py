@@ -581,7 +581,7 @@ def scale_body_segment_parameters(calibration_csv_path, subject_mass,
     constants = {
         # trunk, a
         'ma': mass_trunk,
-        'ia': mass_trunk*(0.496*len_trunk)**2,  # TODO : check value, different than example constants
+        'ia': mass_trunk*(0.496*len_trunk)**2,  # TODO : check value, different than example constants and Ton's
         'xa': 0.0,
         'ya': 0.626*len_trunk,  # TODO: positive or negative? distal or proximal?
         # rthigh, b
