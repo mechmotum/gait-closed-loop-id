@@ -456,7 +456,7 @@ def scale_body_segment_parameters(calibration_csv_path, subject_mass,
         ax.set_aspect('equal')
         plt.show()
 
-    def length(prox_marker, dist_marker, saggital=True):
+    def length(prox_marker, dist_marker, sagittal=True):
         """Returns the Euclidean distances between two markers versus time."""
         # x: positive heel to toe
         # y: positive foot to head
@@ -469,14 +469,15 @@ def scale_body_segment_parameters(calibration_csv_path, subject_mass,
         y2 = df[dist_marker + '.PosY']
         z2 = df[dist_marker + '.PosZ']
 
-        if saggital:
+        if sagittal:
             sum_of_squares = (x2 - x1)**2 + (y2 - y1)**2
         else:
             sum_of_squares = (x2 - x1)**2 + (y2 - y1)**2 + (z2 - z1)**2
 
         return np.sqrt(sum_of_squares)
 
-    def mean_length(prox_marker, dist_marker, saggital=True):
+    def mean_length(prox_marker, dist_marker, sagittal=True):
+        """Returns the length between markers as the mean of right and left."""
         return np.mean((
             length('R' + prox_marker, 'R' + dist_marker).mean(),  # right
             length('L' + prox_marker, 'L' + dist_marker).mean(),  # left
