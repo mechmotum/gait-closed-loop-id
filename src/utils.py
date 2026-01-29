@@ -438,15 +438,15 @@ def scale_body_segment_parameters(calibration_csv_path, subject_mass,
 
     df = pd.read_csv(calibration_csv_path)
 
-    df_mkrs = df[df.columns[df.columns.str.endswith('PosX') |
-                            df.columns.str.endswith('PosY') |
-                            df.columns.str.endswith('PosZ')]]
-
-    x = df_mkrs[df_mkrs.columns[df_mkrs.columns.str.endswith('PosX')]]
-    y = df_mkrs[df_mkrs.columns[df_mkrs.columns.str.endswith('PosY')]]
-    z = df_mkrs[df_mkrs.columns[df_mkrs.columns.str.endswith('PosZ')]]
-
     if plot:
+        df_mkrs = df[df.columns[df.columns.str.endswith('PosX') |
+                                df.columns.str.endswith('PosY') |
+                                df.columns.str.endswith('PosZ')]]
+
+        x = df_mkrs[df_mkrs.columns[df_mkrs.columns.str.endswith('PosX')]]
+        y = df_mkrs[df_mkrs.columns[df_mkrs.columns.str.endswith('PosY')]]
+        z = df_mkrs[df_mkrs.columns[df_mkrs.columns.str.endswith('PosZ')]]
+
         fig = plt.figure()
         ax = fig.add_subplot(projection='3d')
         ax.scatter(x.mean(), y.mean(), z.mean())
@@ -456,15 +456,31 @@ def scale_body_segment_parameters(calibration_csv_path, subject_mass,
         ax.set_aspect('equal')
         plt.show()
 
-    def length(prox_marker, dist_marker):
+    def length(prox_marker, dist_marker, saggital=True):
         """Returns the Euclidean distances between two markers versus time."""
-        x1 = df_mkrs[prox_marker + '.PosX']
-        y1 = df_mkrs[prox_marker + '.PosY']
-        z1 = df_mkrs[prox_marker + '.PosZ']
-        x2 = df_mkrs[dist_marker + '.PosX']
-        y2 = df_mkrs[dist_marker + '.PosY']
-        z2 = df_mkrs[dist_marker + '.PosZ']
-        return np.sqrt((x2 - x1)**2 + (y2 - y1)**2 + (z2 - z1)**2)
+        # x: positive heel to toe
+        # y: positive foot to head
+        # z: positive left to right
+        x1 = df[prox_marker + '.PosX']
+        y1 = df[prox_marker + '.PosY']
+        z1 = df[prox_marker + '.PosZ']
+
+        x2 = df[dist_marker + '.PosX']
+        y2 = df[dist_marker + '.PosY']
+        z2 = df[dist_marker + '.PosZ']
+
+        if saggital:
+            sum_of_squares = (x2 - x1)**2 + (y2 - y1)**2
+        else:
+            sum_of_squares = (x2 - x1)**2 + (y2 - y1)**2 + (z2 - z1)**2
+
+        return np.sqrt(sum_of_squares)
+
+    def mean_length(prox_marker, dist_marker, saggital=True):
+        return np.mean((
+            length('R' + prox_marker, 'R' + dist_marker).mean(),  # right
+            length('L' + prox_marker, 'L' + dist_marker).mean(),  # left
+        ))
 
     # Winter Table 4.1 selected rows:
     # Foot, Lateral malleolus/head metatarsal II, 0.0145
@@ -481,77 +497,66 @@ def scale_body_segment_parameters(calibration_csv_path, subject_mass,
     # Head of 5th metatarsal, MT5
 
     # These calculate average segment lengths, assuming left/right symmetry.
-    len_trunk = np.mean((
-        length('RDELT', 'RGTRO').mean(),  # right trunk
-        length('LDELT', 'LGTRO').mean(),  # left trunk
-    ))
-
-    len_thigh = np.mean((
-        length('RGTRO', 'RLEK').mean(),  # right thigh
-        length('LGTRO', 'LLEK').mean(),  # left thigh
-    ))
-
-    len_shank = np.mean((
-        length('RLEK', 'RLM').mean(),  # right shank
-        length('LLEK', 'LLM').mean(),  # left shank
-    ))
-
-    len_foot = np.mean((
-        length('RHEE', 'RTOE'),  # right foot
-        length('LHEE', 'LTOE'),  # left foot
-    ))
+    len_trunk = mean_length('DELT', 'GTRO')
+    len_thigh = mean_length('GTRO', 'LEK')
+    len_shank = mean_length('LEK', 'LM')
+    len_foot = mean_length('HEE', 'TOE')
 
     def foot_dimensions():
         # positive x points heel to toe
         # positive y points ground to sky
-        hxd = -(df_mkrs['RLM.PosX'] - df_mkrs['RHEE.PosX'])  # - marker_diameter/2
+        hxd = -(df['RLM.PosX'] - df['RHEE.PosX'])  # - marker_diameter/2
         hxd = hxd.mean()
-        txd = df_mkrs['RMT5.PosX'] - df_mkrs['RLM.PosX']
+        txd = df['RMT5.PosX'] - df['RLM.PosX']
         txd = txd.mean()
-        fyd = -df_mkrs['RLM.PosY']
+        fyd = -df['RLM.PosY']
         fyd = fyd.mean()
         xd = 0.5*len_foot + hxd
         yd = 0.5*fyd
 
-        hxg = -(df_mkrs['LLM.PosX'] - df_mkrs['LHEE.PosX'])  # - marker_diameter/2
+        hxg = -(df['LLM.PosX'] - df['LHEE.PosX'])  # - marker_diameter/2
         hxg = hxg.mean()
-        txg = df_mkrs['LMT5.PosX'] - df_mkrs['LLM.PosX']
+        txg = df['LMT5.PosX'] - df['LLM.PosX']
         txg = txg.mean()
-        fyg = -df_mkrs['LLM.PosY']
+        fyg = -df['LLM.PosY']
         fyg = fyg.mean()
         xg = 0.5*len_foot + hxg
         yg = 0.5*fyg
 
-        return (xg + xd)/2, (yg + yd)/2, (hxg + hxd)/2, (txg + txd)/2, (fyg + fyd)/2
+        return ((xg + xd)/2, (yg + yd)/2, (hxg + hxd)/2, (txg + txd)/2,
+                (fyg + fyd)/2)
 
     mass_trunk = 0.678*subject_mass
     mass_thigh = 0.1*subject_mass
     mass_shank = 0.0465*subject_mass
     mass_foot = 0.0145*subject_mass
 
+    np.testing.assert_allclose(subject_mass, mass_trunk + 2*mass_thigh +
+                               2*mass_shank + 2*mass_foot)
+
     x, y, hx, tx, fy = foot_dimensions()
 
     constants = {
         # trunk, a
         'ma': mass_trunk,
-        'ia': (0.496*len_trunk)**2*mass_trunk,
+        'ia': mass_trunk*(0.496*len_trunk)**2,
         'xa': 0.0,
         'ya': 0.626*len_trunk,  # TODO: positive or negative? distal or proximal?
         # rthigh, b
         'mb': mass_thigh,
-        'ib': (0.323*len_thigh)**2*mass_thigh,
+        'ib': mass_thigh*(0.323*len_thigh)**2,
         'xb': 0.0,
         'yb': -0.433*len_thigh,
         'lb': len_thigh,
         # rshank, c
         'mc': mass_shank,
-        'ic': (0.302*len_shank)**2*mass_shank,
+        'ic': mass_shank*(0.302*len_shank)**2,
         'xc': 0.0,
         'yc': -0.433*len_shank,
         'lc': len_shank,
         # rfoot, d
         'md': mass_foot,
-        'id': (0.475*len_foot)**2*mass_foot,
+        'id': mass_foot*(0.475*len_foot)**2,
         'xd': x,
         'yd': y,
         'hxd': hx,
@@ -559,19 +564,19 @@ def scale_body_segment_parameters(calibration_csv_path, subject_mass,
         'fyd': fy,
         # lthigh, e
         'me': mass_thigh,
-        'ie': (0.323*len_thigh)**2*mass_thigh,
+        'ie': mass_thigh*(0.323*len_thigh)**2,
         'xe': 0.0,
         'ye': -0.433*len_thigh,
         'le': len_thigh,
         # lshank, f
         'mf': mass_shank,
-        'if': (0.302*len_shank)**2*mass_shank,
+        'if': mass_shank*(0.302*len_shank)**2,
         'xf': 0.0,
         'yf': -0.433*len_shank,
         'lf': len_shank,
         # lfoot, g
         'mg': mass_foot,
-        'ig': (0.475*len_foot)**2*mass_foot,
+        'ig': mass_foot*(0.475*len_foot)**2,
         'xg': x,
         'yg': y,
         'hxg': hx,
