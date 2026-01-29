@@ -31,11 +31,20 @@ environment::
 Data
 ====
 
-There is sample data in the ``data/`` directory for tracking but you can use
-data we collected by downloading this `sample file
-<https://drive.google.com/file/d/1rsBbDih0fqa8v14fmY7__Ss01eaY7Ol9/view?usp=sharing>`_
-[16Mb], unzipping it, and placing the CSV file into the ``data/`` directory.
-This is sample data from trial 20 from:
+There is sample data in the ``data/`` directory for tracking but you can also
+use data we collected by downloading these files:
+
+- `sample calibration pose <https://drive.google.com/file/d/16BkXcR5F-7DsJNoXf9tjy5ujyN3pDMl0/view?usp=sharing>`_
+- `sample gait cycles during perturbations <https://drive.google.com/file/d/1rsBbDih0fqa8v14fmY7__Ss01eaY7Ol9/view?usp=sharing>`_ [16Mb]
+
+unzipping them and placing the two CSV files into the ``data/`` directory.
+
+Filenames are:
+
+- ``020-calibration-pose.csv``
+- ``020-longitudinal-perturbation-gait-cycles.csv``
+
+These are sample data from trial 20 from:
 
 Moore JK, Hnat SK, van den Bogert AJ. 2015. An elaborate data set on human gait
 and the effect of mechanical perturbations. PeerJ 3:e918
@@ -47,6 +56,10 @@ Run
 Run the code that evaluates the differential equations::
 
    python src/evaluate.py
+
+Plot the calibration pose and a gait cycle::
+
+   python src/utils.py
 
 Solve an optimal control problem::
 
