@@ -22,7 +22,7 @@ import sympy as sm
 
 from utils import (load_winter_data, load_sample_data, GAITDATAPATH, DATADIR,
                    plot_joint_comparison, generate_marker_equations, animate,
-                   CALIBDATAPATH, scale_body_segment_parameters)
+                   CALIBDATAPATH, body_segment_parameters_from_calibration)
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(
@@ -95,13 +95,15 @@ Tb, Tc, Td, Te, Tf, Tg, v = symbolics.specifieds
 # and foot deformation properties of an adult human.
 par_map = simulate.load_constants(
     symbolics.constants, os.path.join(DATADIR, 'example_constants.yml'))
-# TODO : subject mass (70) should be loaded from meta data files.
-scaled_par = scale_body_segment_parameters(CALIBDATAPATH, 70.0)
-for c in symbolics.constants:
-    try:
-        par_map[c] = scaled_par[c.name]
-    except KeyError:
-        pass
+
+if TRACK_MARKERS and os.path.exists(CALIBDATAPATH):
+    # TODO : subject mass (70) should be loaded from meta data files.
+    scaled_par = body_segment_parameters_from_calibration(CALIBDATAPATH, 70.0)
+    for c in symbolics.constants:
+        try:
+            par_map[c] = scaled_par[c.name]
+        except KeyError:
+            pass
 
 states = symbolics.states
 num_states = len(states)

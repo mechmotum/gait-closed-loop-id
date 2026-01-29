@@ -433,8 +433,8 @@ def plot_joint_comparison(t, angles, torques, angles_meas):
     return axes
 
 
-def scale_body_segment_parameters(calibration_csv_path, subject_mass,
-                                  plot=False):
+def body_segment_parameters_from_calibration(calibration_csv_path,
+                                             subject_mass, plot=False):
     """Generates model segment dimensions, mass, mass center dimensions, and
     central moments of inertia based on the calibration pose marker set and the
     subject's total mass using Winter's body segment scaling table.
@@ -485,7 +485,7 @@ def scale_body_segment_parameters(calibration_csv_path, subject_mass,
         ax.set_aspect('equal')
         plt.show()
 
-    def length(marker_one, marker_two, sagittal=True):
+    def length(marker_one, marker_two, project=None):
         """Returns the Euclidean distances between two markers versus time.
 
         Parameters
@@ -494,9 +494,10 @@ def scale_body_segment_parameters(calibration_csv_path, subject_mass,
             Full marker name, e.g. 'RHEE'.
         marker_two : string
             Full marker name, e.g. 'RHEE'.
-        sagittal: boolean, optional
-            If true, distance between markers projected onto the sagittal plane
-            is returned.
+        project: str, optional
+            Project the markers onto the plane normal to the provided axis
+            label, i.e. 'x' (coronal plane), 'y' (transverse plane), or 'z'
+            (sagittal plane).
 
         """
         x1 = df[marker_one + '.PosX']
@@ -507,20 +508,26 @@ def scale_body_segment_parameters(calibration_csv_path, subject_mass,
         y2 = df[marker_two + '.PosY']
         z2 = df[marker_two + '.PosZ']
 
-        if sagittal:
+        if project == 'x':
+            sum_of_squares = (y2 - y1)**2 + (z2 - z1)**2
+        elif project == 'y':
+            sum_of_squares = (x2 - x1)**2 + (z2 - z1)**2
+        elif project == 'z':
             sum_of_squares = (x2 - x1)**2 + (y2 - y1)**2
-        else:
+        elif project is None:
             sum_of_squares = (x2 - x1)**2 + (y2 - y1)**2 + (z2 - z1)**2
 
         return np.sqrt(sum_of_squares)
 
-    def mean_length(marker_one, marker_two, sagittal=True):
+    def mean_length(marker_one, marker_two, project=None):
         """Returns the length between markers as the mean of right and left.
         Provide marker names sans the 'R' or 'L' indicator, i.e. 'HEE' not
         'RHEE'."""
         return np.mean((
-            length('R' + marker_one, 'R' + marker_two).mean(),  # right
-            length('L' + marker_one, 'L' + marker_two).mean(),  # left
+            length('R' + marker_one, 'R' + marker_two,
+                   project=project).mean(),  # right
+            length('L' + marker_one, 'L' + marker_two,
+                   project=project).mean(),  # left
         ))
 
     # Markers in our set:
@@ -532,10 +539,10 @@ def scale_body_segment_parameters(calibration_csv_path, subject_mass,
     # Head of 5th metatarsal, MT5
     # Tip of big toe, TOE
 
-    len_trunk = mean_length('DELT', 'GTRO')
-    len_thigh = mean_length('GTRO', 'LEK')
-    len_shank = mean_length('LEK', 'LM')
-    len_foot = mean_length('HEE', 'TOE')
+    len_trunk = mean_length('DELT', 'GTRO', project='z')
+    len_thigh = mean_length('GTRO', 'LEK', project='z')
+    len_shank = mean_length('LEK', 'LM', project='z')
+    len_foot = mean_length('HEE', 'TOE', project='z')
 
     def foot_dimensions():
         hxd = -(df['RLM.PosX'] - df['RHEE.PosX'])  # - marker_diameter/2
@@ -630,7 +637,8 @@ def scale_body_segment_parameters(calibration_csv_path, subject_mass,
 
 
 if __name__ == "__main__":
-    constants = scale_body_segment_parameters(CALIBDATAPATH, 70.0, plot=True)
+    constants = body_segment_parameters_from_calibration(CALIBDATAPATH, 70.0,
+                                                         plot=True)
     master_df = pd.read_csv(GAITDATAPATH)
     df = extract_gait_cycle(master_df, 100)
     plot_points(df)
