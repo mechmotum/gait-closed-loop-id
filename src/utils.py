@@ -331,6 +331,17 @@ def load_winter_data(num_nodes):
 
 
 def load_sample_data(num_nodes, gait_cycle_number=100):
+    """Returns data from a measurement file in the same format as
+    load_winter_data.
+
+    Parameters
+    ==========
+    num_nodes : integer
+        Number of evenly spaced time instances in the time series.
+    gait_cycle_number: integer, optional
+        Number from 0 to total gait cycles - 1.
+
+    """
     master_df = pd.read_csv(GAITDATAPATH)
     df = extract_gait_cycle(master_df, gait_cycle_number)
 
@@ -383,17 +394,35 @@ def load_sample_data(num_nodes, gait_cycle_number=100):
     ]
     marker_vals = df[markers].values
 
+    kinetics = [
+        'FP1.ForX',
+        'FP1.ForY',
+        'FP1.ForZ',
+        'FP2.ForX',
+        'FP2.ForY',
+        'FP2.ForZ',
+        'Left.Hip.Flexion.Moment',
+        'Left.Knee.Flexion.Moment',
+        'Left.Ankle.PlantarFlexion.Moment',
+        'Right.Hip.Flexion.Moment',
+        'Right.Knee.Flexion.Moment',
+        'Right.Ankle.PlantarFlexion.Moment',
+    ]
+    kinetic_vals = df[kinetics].values
+
     new_time = np.linspace(0.0, duration, num=num_nodes - 1)
     interp_ang_arr = interp1d(time, ang_arr, axis=0)(new_time)
     interp_mark_arr = interp1d(time, marker_vals, axis=0)(new_time)
+    interp_kinetic_arr = interp1d(time, kinetic_vals, axis=0)(new_time)
 
     mark_df = pd.DataFrame(dict(zip(markers, interp_mark_arr.T)))
+    kinetic_df = pd.DataFrame(dict(zip(kinetics, interp_kinetic_arr.T)))
 
     return (duration, walking_speed, len(angles), interp_ang_arr.T.flatten(),
-            mark_df)
+            mark_df, kinetic_df)
 
 
-def plot_joint_comparison(t, angles, torques, angles_meas):
+def plot_joint_comparison(t, angles, torques, angles_meas, torques_meas=None):
     """
     Parameters
     ==========
@@ -405,6 +434,8 @@ def plot_joint_comparison(t, angles, torques, angles_meas):
         hip extension, knee extension, ankle plantarflexion
     angles_meas : array_like, shape(N, 3)
         hip flexion, knee flexion, ankle dorsiflexion
+    torques_meas : array_like, shape(N, 3), optional
+        hip extension, knee extension, ankle plantarflexion
 
     Returns
     =======
@@ -426,6 +457,9 @@ def plot_joint_comparison(t, angles, torques, angles_meas):
     torlabels = ('hip extension', 'knee extension', 'ankle plantarflexion')
     for tor, color, lab in zip(torques.T, colors, torlabels):
         axes[1].plot(t, tor, color=color, label=lab)
+    if torques_meas is not None:
+        for tor, color, lab in zip(torques_meas.T, colors, torlabels):
+            axes[1].plot(t, tor, color=color, label=lab + ' measured')
     axes[1].legend()
     axes[1].set_ylabel('Torque [Nm]')
     axes[1].set_xlabel('Time [s]')

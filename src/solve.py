@@ -41,13 +41,14 @@ obj_Wtorque = 100   # weight of the mean squared torque (in kNm) objective
 obj_Wtrack = 100  # weight of the mean squared angle tracking error (in rad)
 obj_Wreg = 0.00000001  # weight of the mean squared time derivatives (for regularization)
 TRACK_MARKERS = True
-GAIT_CYCLE_NUM = 45
+GAIT_CYCLE_NUM = 2
 
 # %% Load measurement data
 if os.path.exists(GAITDATAPATH):
     # load a gait cycle from our data (trial 20)
     (duration, walking_speed, num_angles, ang_data,
-     marker_df) = load_sample_data(num_nodes, gait_cycle_number=GAIT_CYCLE_NUM)
+     marker_df, kinetic_df) = load_sample_data(
+         num_nodes, gait_cycle_number=GAIT_CYCLE_NUM)
 elif not TRACK_MARKERS:
     # load normal gait data from Winter's book
     duration, walking_speed, num_angles, ang_data = load_winter_data(num_nodes)
