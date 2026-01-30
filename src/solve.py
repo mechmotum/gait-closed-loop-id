@@ -20,8 +20,9 @@ import matplotlib.pyplot as plt
 import numpy as np
 import sympy as sm
 
-from utils import (load_winter_data, load_sample_data, DATAPATH, DATADIR,
-                   plot_joint_comparison, generate_marker_equations, animate)
+from utils import (load_winter_data, load_sample_data, GAITDATAPATH, DATADIR,
+                   plot_joint_comparison, generate_marker_equations, animate,
+                   CALIBDATAPATH, body_segment_parameters_from_calibration)
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(
@@ -41,13 +42,9 @@ obj_Wtrack = 100  # weight of the mean squared angle tracking error (in rad)
 obj_Wreg = 0.00000001  # weight of the mean squared time derivatives (for regularization)
 TRACK_MARKERS = True
 GAIT_CYCLE_NUM = 45
-# TODO : This y coordinate shift is a manual adjustment that should eventually
-# be handled by scaling the model and determining any mismatch between the
-# ground level in the model and the data.
-ANK_MARK_Y_SHIFT = 0.04
 
 # %% Load measurement data
-if os.path.exists(DATAPATH):
+if os.path.exists(GAITDATAPATH):
     # load a gait cycle from our data (trial 20)
     (duration, walking_speed, num_angles, ang_data,
      marker_df) = load_sample_data(num_nodes, gait_cycle_number=GAIT_CYCLE_NUM)
@@ -98,6 +95,15 @@ Tb, Tc, Td, Te, Tf, Tg, v = symbolics.specifieds
 # and foot deformation properties of an adult human.
 par_map = simulate.load_constants(
     symbolics.constants, os.path.join(DATADIR, 'example_constants.yml'))
+
+if TRACK_MARKERS and os.path.exists(CALIBDATAPATH):
+    # TODO : subject mass (70) should be loaded from meta data files.
+    scaled_par = body_segment_parameters_from_calibration(CALIBDATAPATH, 70.0)
+    for c in symbolics.constants:
+        try:
+            par_map[c] = scaled_par[c.name]
+        except KeyError:
+            pass
 
 states = symbolics.states
 num_states = len(states)
@@ -220,8 +226,6 @@ def obj(prob, free, obj_show=False):
             # we only return 49 nodes from measured, so add first to last
             meas_vals = np.hstack((marker_df[lab].values,
                                    marker_df[lab].values[0]))
-            if 'Y' in lab:
-                meas_vals -= ANK_MARK_Y_SHIFT
             # TODO : Ton divides the whole angle track by num_angles*num_nodes,
             # need to combine this division for angle and marker track.
             f_marker_track += (obj_Wtrack*np.sum((vals - meas_vals)**2)/
@@ -255,8 +259,6 @@ def obj_grad(prob, free):
             vals = prob.extract_values(free, var)
             meas_vals = np.hstack((marker_df[lab].values,
                                    marker_df[lab].values[0]))
-            if 'Y' in lab:
-                meas_vals -= ANK_MARK_Y_SHIFT
             prob.fill_free(grad, 2.0*obj_Wtrack*(vals - meas_vals)/
                            len(vals)/len(marker_coords), var)
 
@@ -369,12 +371,12 @@ def plot_ankle():
     ax.plot(prob.extract_values(solution, ank_lx),
             prob.extract_values(solution, ank_ly), color='C0',
             label='Model, Left')
-    ax.plot(marker_df['LLM.PosX'], marker_df['LLM.PosY'] - ANK_MARK_Y_SHIFT,
+    ax.plot(marker_df['LLM.PosX'], marker_df['LLM.PosY'],
             color='C0', linestyle='--', label='Data, Left')
     ax.plot(prob.extract_values(solution, ank_rx),
             prob.extract_values(solution, ank_ry), color='C1',
             label='Model, Right')
-    ax.plot(marker_df['RLM.PosX'], marker_df['RLM.PosY'] - ANK_MARK_Y_SHIFT,
+    ax.plot(marker_df['RLM.PosX'], marker_df['RLM.PosY'],
             color='C1', linestyle='--', label='Data, Right')
     ax.set_aspect("equal")
     ax.legend()

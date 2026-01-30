@@ -56,9 +56,11 @@ from pygait2d.segment import time_varying, contact_force
 from symmeplot.matplotlib import Scene3D
 from matplotlib.animation import FuncAnimation
 
-DATAFILE = '020-longitudinal-perturbation-gait-cycles.csv'
+GAITFILE = '020-longitudinal-perturbation-gait-cycles.csv'
+CALIBFILE = '020-calibration-pose.csv'
 DATADIR = os.path.join(os.path.dirname(__file__), '..', 'data')
-DATAPATH = os.path.join(DATADIR, DATAFILE)
+GAITDATAPATH = os.path.join(DATADIR, GAITFILE)
+CALIBDATAPATH = os.path.join(DATADIR, CALIBFILE)
 
 
 def animate(symbolics, xs, rs, h, speed, times, par_map):
@@ -329,7 +331,7 @@ def load_winter_data(num_nodes):
 
 
 def load_sample_data(num_nodes, gait_cycle_number=100):
-    master_df = pd.read_csv(DATAPATH)
+    master_df = pd.read_csv(GAITDATAPATH)
     df = extract_gait_cycle(master_df, gait_cycle_number)
 
     df = df.iloc[:11, :]  # take 0% to 50%
@@ -431,8 +433,209 @@ def plot_joint_comparison(t, angles, torques, angles_meas):
     return axes
 
 
+def body_segment_parameters_from_calibration(calibration_csv_path,
+                                             subject_mass, plot=False):
+    """Generates model segment dimensions, mass, mass center dimensions, and
+    central moments of inertia based on the calibration pose marker set and the
+    subject's total mass using Winter's body segment scaling table.
+
+    Parameters
+    ==========
+    calibration_csv_path : str
+        Path to a file containing the time series of the markers during a
+        calibration pose (subject is stationary).
+    subject_mass: float
+        Total mass of the subject.
+    plot : boolean, optional
+        If true a plot of the markers in the mean position will be shown.
+
+    Returns
+    =======
+    constants : dictionary
+        Mapping of model parameter (segment and mass center dimensions, central
+        moment of inertia, mass) string name to float.
+
+    """
+
+    df = pd.read_csv(calibration_csv_path)
+
+    if plot:
+        # x: positive heel to toe
+        # y: positive foot to head
+        # z: positive left to right
+
+        df_mkrs = df[df.columns[df.columns.str.endswith('PosX') |
+                                df.columns.str.endswith('PosY') |
+                                df.columns.str.endswith('PosZ')]]
+
+        x = df_mkrs[df_mkrs.columns[df_mkrs.columns.str.endswith('PosX')]]
+        y = df_mkrs[df_mkrs.columns[df_mkrs.columns.str.endswith('PosY')]]
+        z = df_mkrs[df_mkrs.columns[df_mkrs.columns.str.endswith('PosZ')]]
+
+        fig = plt.figure()
+        ax = fig.add_subplot(projection='3d')
+        ax.scatter(x.mean(), z.mean(), y.mean())
+        xx, yy = np.meshgrid(np.linspace(-0.5, 0.5, num=10),
+                             np.linspace(-0.5, 0.5, num=10))
+        ax.plot_surface(xx, yy, np.zeros_like(xx), alpha=0.5, color='black')
+        ax.invert_yaxis()
+        ax.set_xlabel('x')
+        ax.set_ylabel('z')
+        ax.set_zlabel('y')
+        ax.set_aspect('equal')
+        plt.show()
+
+    def length(marker_one, marker_two, project=None):
+        """Returns the Euclidean distances between two markers versus time.
+
+        Parameters
+        ==========
+        marker_one : string
+            Full marker name, e.g. 'RHEE'.
+        marker_two : string
+            Full marker name, e.g. 'RHEE'.
+        project: str, optional
+            Project the markers onto the plane normal to the provided axis
+            label, i.e. 'x' (coronal plane), 'y' (transverse plane), or 'z'
+            (sagittal plane).
+
+        """
+        x1 = df[marker_one + '.PosX']
+        y1 = df[marker_one + '.PosY']
+        z1 = df[marker_one + '.PosZ']
+
+        x2 = df[marker_two + '.PosX']
+        y2 = df[marker_two + '.PosY']
+        z2 = df[marker_two + '.PosZ']
+
+        if project == 'x':
+            sum_of_squares = (y2 - y1)**2 + (z2 - z1)**2
+        elif project == 'y':
+            sum_of_squares = (x2 - x1)**2 + (z2 - z1)**2
+        elif project == 'z':
+            sum_of_squares = (x2 - x1)**2 + (y2 - y1)**2
+        elif project is None:
+            sum_of_squares = (x2 - x1)**2 + (y2 - y1)**2 + (z2 - z1)**2
+
+        return np.sqrt(sum_of_squares)
+
+    def mean_length(marker_one, marker_two, project=None):
+        """Returns the length between markers as the mean of right and left.
+        Provide marker names sans the 'R' or 'L' indicator, i.e. 'HEE' not
+        'RHEE'."""
+        return np.mean((
+            length('R' + marker_one, 'R' + marker_two,
+                   project=project).mean(),  # right
+            length('L' + marker_one, 'L' + marker_two,
+                   project=project).mean(),  # left
+        ))
+
+    # Markers in our set:
+    # Shoulder, SHO, acromion marker is 35 mm above the glenohumeral joint
+    # Greater trochanter, GTRO
+    # Lateral epicondyle of knee, LEK
+    # Lateral malleolus, LM
+    # Heel (placed at same height as marker 6), HEE
+    # Head of 5th metatarsal, MT5
+    # Tip of big toe, TOE
+
+    # Location of glenohumeral joint is 35 mm below the acromion (De Leva, J
+    # Biomech 1996)
+    len_trunk = mean_length('SHO', 'GTRO', project='z') - 0.035
+    len_thigh = mean_length('GTRO', 'LEK', project='z')
+    len_shank = mean_length('LEK', 'LM', project='z')
+    len_foot = mean_length('HEE', 'TOE', project='z')
+
+    def foot_dimensions():
+        hxd = -(df['RLM.PosX'] - df['RHEE.PosX']).mean()  # - marker_diameter/2
+        txd = (df['RMT5.PosX'] - df['RLM.PosX']).mean()
+        fyd = -df['RLM.PosY'].mean()
+        xd = 0.5*len_foot + hxd
+        yd = 0.5*fyd
+
+        hxg = -(df['LLM.PosX'] - df['LHEE.PosX']).mean()  # - marker_diameter/2
+        txg = (df['LMT5.PosX'] - df['LLM.PosX']).mean()
+        fyg = -df['LLM.PosY'].mean()
+        xg = 0.5*len_foot + hxg
+        yg = 0.5*fyg
+
+        return ((xg + xd)/2, (yg + yd)/2, (hxg + hxd)/2, (txg + txd)/2,
+                (fyg + fyd)/2)
+
+    # Winter Table 4.1 selected rows:
+    # Segment name, segment landmarks, percent mass
+    # Foot, Lateral malleolus/head metatarsal II, 0.0145
+    # Leg, Femoral condyles/medial malleolus, 0.433
+    # Thigh, Greater trochanter/femoral condyles, 0.1
+    # Head, arms, and trunk (HAT), Greater trochater/glenohumeral joint*, 0.678
+    mass_trunk = 0.678*subject_mass
+    mass_thigh = 0.1*subject_mass
+    mass_shank = 0.0465*subject_mass
+    mass_foot = 0.0145*subject_mass
+
+    # Make sure mass totals to subject's total mass.
+    np.testing.assert_allclose(
+        subject_mass,
+        mass_trunk + 2*mass_thigh + 2*mass_shank + 2*mass_foot
+    )
+
+    x, y, hx, tx, fy = foot_dimensions()
+
+    constants = {
+        # trunk, a
+        'ma': mass_trunk,
+        'ia': mass_trunk*(0.496*len_trunk)**2,
+        'xa': 0.0,
+        'ya': 0.626*len_trunk,  # TODO: distal or proximal?
+        # rthigh, b
+        'mb': mass_thigh,
+        'ib': mass_thigh*(0.323*len_thigh)**2,
+        'xb': 0.0,
+        'yb': -0.433*len_thigh,
+        'lb': len_thigh,
+        # rshank, c
+        'mc': mass_shank,
+        'ic': mass_shank*(0.302*len_shank)**2,
+        'xc': 0.0,
+        'yc': -0.433*len_shank,
+        'lc': len_shank,
+        # rfoot, d
+        'md': mass_foot,
+        'id': mass_foot*(0.475*len_foot)**2,
+        'xd': x,
+        'yd': y,
+        'hxd': hx,
+        'txd': tx,
+        'fyd': fy,
+        # lthigh, e
+        'me': mass_thigh,
+        'ie': mass_thigh*(0.323*len_thigh)**2,
+        'xe': 0.0,
+        'ye': -0.433*len_thigh,
+        'le': len_thigh,
+        # lshank, f
+        'mf': mass_shank,
+        'if': mass_shank*(0.302*len_shank)**2,
+        'xf': 0.0,
+        'yf': -0.433*len_shank,
+        'lf': len_shank,
+        # lfoot, g
+        'mg': mass_foot,
+        'ig': mass_foot*(0.475*len_foot)**2,
+        'xg': x,
+        'yg': y,
+        'hxg': hx,
+        'txg': tx,
+        'fyg': fy,
+    }
+
+    return constants
+
+
 if __name__ == "__main__":
-    master_df = pd.read_csv(DATAPATH)
+    constants = body_segment_parameters_from_calibration(CALIBDATAPATH, 70.0,
+                                                         plot=True)
+    master_df = pd.read_csv(GAITDATAPATH)
     df = extract_gait_cycle(master_df, 100)
     plot_points(df)
     plt.show()
