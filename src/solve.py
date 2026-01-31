@@ -41,7 +41,7 @@ obj_Wtorque = 100   # weight of the mean squared torque (in kNm) objective
 obj_Wtrack = 100  # weight of the mean squared angle tracking error (in rad)
 obj_Wreg = 0.00000001  # weight of the mean squared time derivatives (for regularization)
 TRACK_MARKERS = True
-GAIT_CYCLE_NUM = 2
+GAIT_CYCLE_NUM = 45
 
 # %% Load measurement data
 if os.path.exists(GAITDATAPATH):
@@ -68,11 +68,9 @@ for i in range(9):
     eom[9+i] = genforce_scale * eom[9+i]
 
 # TODO : Should the marker equations be scaled like above?
-# TODO : Generalize for more markers.
 if TRACK_MARKERS:
     marker_coords, marker_eqs, marker_labels = generate_marker_equations(
         symbolics)
-    ank_lx, ank_ly, ank_rx, ank_ry = marker_coords
     eom = eom.col_join(sm.Matrix(marker_eqs))
 
 #breakpoint()
@@ -97,6 +95,8 @@ Tb, Tc, Td, Te, Tf, Tg, v = symbolics.specifieds
 par_map = simulate.load_constants(
     symbolics.constants, os.path.join(DATADIR, 'example_constants.yml'))
 
+# If there is calibration pose data, update the constants based on that
+# subject.
 if TRACK_MARKERS and os.path.exists(CALIBDATAPATH):
     # TODO : subject mass (70) should be loaded from meta data files.
     scaled_par = body_segment_parameters_from_calibration(CALIBDATAPATH, 70.0)
@@ -175,13 +175,10 @@ instance_constraints = (
 )
 
 if TRACK_MARKERS:
-    marker_instance_constraints = (
-        ank_ly.func(0*h) - ank_ry.func(duration),
-        ank_lx.func(0*h) - ank_rx.func(duration),
-        ank_ry.func(0*h) - ank_ly.func(duration),
-        ank_rx.func(0*h) - ank_lx.func(duration),
-    )
-    instance_constraints += marker_instance_constraints
+    for i, marker_sym in enumerate(marker_coords[:-2]):
+        con = (marker_sym.func(0*h) - marker_coords[i + 2].func(duration),
+               marker_coords[i + 2].func(0*h) - marker_sym.func(duration))
+        instance_constraints += con
 
 # %%
 # The objective is a combination of squared torques and squared tracking errors
@@ -313,7 +310,7 @@ if TRACK_MARKERS:
     mar_traj = np.zeros((len(marker_coords), num_nodes))
     initial_guess = np.concatenate((initial_guess, mar_traj))
 initial_guess = initial_guess.flatten()  # make a single row vector
-np.random.seed(1)  # this makes the result reproducible
+#np.random.seed(1)  # this makes the result reproducible
 initial_guess = initial_guess + 0.01*np.random.random_sample(initial_guess.size)
 
 
@@ -367,25 +364,35 @@ tor[:, [0, 2]] = -tor[:, [0, 2]]
 plot_joint_comparison(t, ang, tor, dat)
 
 
-def plot_ankle():
+def plot_marker_comparison():
     fig, ax = plt.subplots()
-    ax.plot(prob.extract_values(solution, ank_lx),
-            prob.extract_values(solution, ank_ly), color='C0',
-            label='Model, Left')
-    ax.plot(marker_df['LLM.PosX'], marker_df['LLM.PosY'],
-            color='C0', linestyle='--', label='Data, Left')
-    ax.plot(prob.extract_values(solution, ank_rx),
-            prob.extract_values(solution, ank_ry), color='C1',
-            label='Model, Right')
-    ax.plot(marker_df['RLM.PosX'], marker_df['RLM.PosY'],
-            color='C1', linestyle='--', label='Data, Right')
+
+    # NOTE : assumes pairs of markers for left and right
+    for i in range(len(marker_coords)//4):
+        lx, ly, rx, ry = marker_coords[i*4:(i + 1)*4]
+        lx_lab, ly_lab, rx_lab, ry_lab = marker_labels[i*4:(i + 1)*4]
+
+        ax.plot(prob.extract_values(solution, lx),
+                prob.extract_values(solution, ly), color='C0',
+                label='Model, Left')
+
+        ax.plot(marker_df[lx_lab], marker_df[ly_lab],
+                color='C0', linestyle='--', label='Data, Left')
+
+        ax.plot(prob.extract_values(solution, rx),
+                prob.extract_values(solution, ry), color='C1',
+                label='Model, Right')
+
+        ax.plot(marker_df[rx_lab], marker_df[ry_lab],
+                color='C1', linestyle='--', label='Data, Right')
+
     ax.set_aspect("equal")
     ax.legend()
     return ax
 
 
 if TRACK_MARKERS:
-    plot_ankle()
+    plot_marker_comparison()
 
 plt.show()
 
