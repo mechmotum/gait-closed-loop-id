@@ -310,7 +310,7 @@ if TRACK_MARKERS:
     mar_traj = np.zeros((len(marker_coords), num_nodes))
     initial_guess = np.concatenate((initial_guess, mar_traj))
 initial_guess = initial_guess.flatten()  # make a single row vector
-#np.random.seed(1)  # this makes the result reproducible
+np.random.seed(1)  # this makes the result reproducible
 initial_guess = initial_guess + 0.01*np.random.random_sample(initial_guess.size)
 
 
