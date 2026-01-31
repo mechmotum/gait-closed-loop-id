@@ -184,6 +184,25 @@ def animate(symbolics, xs, rs, h, speed, times, par_map):
 
 
 def generate_marker_equations(symbolics):
+    """Returns the equations for the x and y coordinates of markers to track.
+
+    Parameters
+    ==========
+    symbolics : pygait2d.derive.Symbolics
+        Dataclass containing the symbolic model.
+
+    Returns
+    =======
+    variables : list of Symbol
+        SymPy symbols for the x and y coordinate of each marker.
+    equations : list of Expr
+        SymPy expressions representing the equations for the x and y
+        coordiantes of each marker.
+    data_labels : list of str
+        List of measured marker labels that correspond to the model points to
+        track.
+
+    """
 
     O, N = symbolics.origin, symbolics.inertial_frame
     trunk, rthigh, rshank, rfoot, lthigh, lshank, lfoot = symbolics.segments
@@ -233,6 +252,8 @@ def generate_marker_equations(symbolics):
 
 
 def extract_gait_cycle(df, number):
+    """Returns a single gait cycle as a data frame from a measurement data
+    frame based on the gait cycle number."""
 
     if number not in df['major'].values:
         msg = '{} not in {}-{}'
@@ -243,6 +264,8 @@ def extract_gait_cycle(df, number):
 
 
 def plot_points(df):
+    """Returns a plot axis showing a 2D view of the primary markers defining
+    the walker moving through the gait cycle."""
 
     marker_labels = [
         'LSHO',
@@ -395,12 +418,12 @@ def load_sample_data(num_nodes, gait_cycle_number=100):
     marker_vals = df[markers].values
 
     kinetics = [
-        'FP1.ForX',
-        'FP1.ForY',
-        'FP1.ForZ',
-        'FP2.ForX',
-        'FP2.ForY',
-        'FP2.ForZ',
+        #'FP1.ForX',
+        #'FP1.ForY',
+        #'FP1.ForZ',
+        #'FP2.ForX',
+        #'FP2.ForY',
+        #'FP2.ForZ',
         'Left.Hip.Flexion.Moment',
         'Left.Knee.Flexion.Moment',
         'Left.Ankle.PlantarFlexion.Moment',
