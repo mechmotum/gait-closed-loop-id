@@ -38,7 +38,7 @@ MAKE_ANIMATION = True
 NUM_NODES = 50  # number of time nodes for the half period
 OBJ_WREG = 0.00000001  # weight of the mean squared time derivatives (for regularization)
 OBJ_WTORQUE = 100  # weight of the mean squared torque (in kNm) objective
-OBJ_WANGLTRACK = 100  # weight of the mean squared angle tracking error (in rad)
+OBJ_WANGLTRACK = 0  # weight of the mean squared angle tracking error (in rad)
 OBJ_WMARKTRACK = 100  # weight of the mean squared angle tracking error (in rad)
 TRACK_MARKERS = True  # track markers (as well as joint angles)
 
@@ -302,7 +302,12 @@ if TRACK_MARKERS:
     mar_traj = np.zeros((len(marker_coords), NUM_NODES))
     initial_guess = np.concatenate((initial_guess, mar_traj))
 initial_guess = initial_guess.flatten()  # make a single row vector
-np.random.seed(1)  # this makes the result reproducible
+if TRACK_MARKERS:
+    for lab, symb in zip(marker_labels, marker_coords):
+        traj = marker_df[lab].values
+        traj = np.hstack((traj, traj[0]))
+        prob.fill_free(initial_guess, traj, symb)
+#np.random.seed(1)  # this makes the result reproducible
 initial_guess = initial_guess + 0.01*np.random.random_sample(initial_guess.size)
 
 # Solve the gait optimization problem for given belt speed
