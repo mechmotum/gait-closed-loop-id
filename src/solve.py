@@ -38,7 +38,8 @@ MAKE_ANIMATION = True
 NUM_NODES = 50  # number of time nodes for the half period
 OBJ_WREG = 0.00000001  # weight of the mean squared time derivatives (for regularization)
 OBJ_WTORQUE = 100  # weight of the mean squared torque (in kNm) objective
-OBJ_WTRACK = 100  # weight of the mean squared angle tracking error (in rad)
+OBJ_WANGLTRACK = 100  # weight of the mean squared angle tracking error (in rad)
+OBJ_WMARKTRACK = 100  # weight of the mean squared angle tracking error (in rad)
 TRACK_MARKERS = True  # track markers (as well as joint angles)
 
 # %% Load measurement data
@@ -197,7 +198,7 @@ for ivar in range(0, num_states + num_torques):
 def obj(prob, free, obj_show=False):
     f_torque = (1e-6*OBJ_WTORQUE*np.sum(free[torque_indices]**2)/
                 torque_indices.size)
-    f_track = (OBJ_WTRACK*np.sum((free[angle_indices] - ang_data)**2)/
+    f_track = (OBJ_WANGLTRACK*np.sum((free[angle_indices] - ang_data)**2)/
                angle_indices.size)
     # regularization cost is the mean of squared time derivatives of all
     # variables
@@ -214,7 +215,7 @@ def obj(prob, free, obj_show=False):
                                    marker_df[lab].values[0]))
             # TODO : Ton divides the whole angle track by num_angles*NUM_NODES,
             # need to combine this division for angle and marker track.
-            f_marker_track += (OBJ_WTRACK*np.sum((vals - meas_vals)**2)/
+            f_marker_track += (OBJ_WMARKTRACK*np.sum((vals - meas_vals)**2)/
                                len(vals)/len(marker_coords))
         f_total += f_marker_track
 
@@ -232,7 +233,7 @@ def obj_grad(prob, free):
     grad = np.zeros_like(free)
     grad[torque_indices] = (2e-6*OBJ_WTORQUE*free[torque_indices]/
                             torque_indices.size)
-    grad[angle_indices] = (2.0*OBJ_WTRACK*(free[angle_indices] - ang_data)/
+    grad[angle_indices] = (2.0*OBJ_WANGLTRACK*(free[angle_indices] - ang_data)/
                            angle_indices.size)
     grad[reg_indices] = grad[reg_indices] + (
         2.0*OBJ_WREG*(free[reg_indices+1]-free[reg_indices])/
@@ -248,7 +249,7 @@ def obj_grad(prob, free):
             vals = prob.extract_values(free, var)
             meas_vals = np.hstack((marker_df[lab].values,
                                    marker_df[lab].values[0]))
-            prob.fill_free(grad, 2.0*OBJ_WTRACK*(vals - meas_vals)/
+            prob.fill_free(grad, 2.0*OBJ_WMARKTRACK*(vals - meas_vals)/
                            len(vals)/len(marker_coords), var)
 
     return grad
