@@ -689,6 +689,36 @@ def body_segment_parameters_from_calibration(calibration_csv_path,
     return constants
 
 
+def plot_marker_comparison(marker_coords, marker_labels, marker_df, prob,
+                           solution):
+    """Returns plot comparing measured marker locations to the model's
+    motion."""
+    fig, ax = plt.subplots()
+
+    # NOTE : assumes pairs of markers for left and right
+    for i in range(len(marker_coords)//4):
+        lx, ly, rx, ry = marker_coords[i*4:(i + 1)*4]
+        lx_lab, ly_lab, rx_lab, ry_lab = marker_labels[i*4:(i + 1)*4]
+
+        ax.plot(prob.extract_values(solution, lx),
+                prob.extract_values(solution, ly), color='C0',
+                label='Model, Left')
+
+        ax.plot(marker_df[lx_lab], marker_df[ly_lab],
+                color='C0', linestyle='--', label='Data, Left')
+
+        ax.plot(prob.extract_values(solution, rx),
+                prob.extract_values(solution, ry), color='C1',
+                label='Model, Right')
+
+        ax.plot(marker_df[rx_lab], marker_df[ry_lab],
+                color='C1', linestyle='--', label='Data, Right')
+
+    ax.set_aspect("equal")
+    ax.legend()
+    return ax
+
+
 if __name__ == "__main__":
     constants = body_segment_parameters_from_calibration(CALIBDATAPATH, 70.0,
                                                          plot=True)

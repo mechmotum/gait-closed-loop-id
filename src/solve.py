@@ -22,7 +22,8 @@ import sympy as sm
 
 from utils import (load_winter_data, load_sample_data, GAITDATAPATH, DATADIR,
                    plot_joint_comparison, generate_marker_equations, animate,
-                   CALIBDATAPATH, body_segment_parameters_from_calibration)
+                   CALIBDATAPATH, body_segment_parameters_from_calibration,
+                   plot_marker_comparison)
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(
@@ -363,36 +364,9 @@ tor[:, [0, 2]] = -tor[:, [0, 2]]
 
 plot_joint_comparison(t, ang, tor, dat)
 
-
-def plot_marker_comparison():
-    fig, ax = plt.subplots()
-
-    # NOTE : assumes pairs of markers for left and right
-    for i in range(len(marker_coords)//4):
-        lx, ly, rx, ry = marker_coords[i*4:(i + 1)*4]
-        lx_lab, ly_lab, rx_lab, ry_lab = marker_labels[i*4:(i + 1)*4]
-
-        ax.plot(prob.extract_values(solution, lx),
-                prob.extract_values(solution, ly), color='C0',
-                label='Model, Left')
-
-        ax.plot(marker_df[lx_lab], marker_df[ly_lab],
-                color='C0', linestyle='--', label='Data, Left')
-
-        ax.plot(prob.extract_values(solution, rx),
-                prob.extract_values(solution, ry), color='C1',
-                label='Model, Right')
-
-        ax.plot(marker_df[rx_lab], marker_df[ry_lab],
-                color='C1', linestyle='--', label='Data, Right')
-
-    ax.set_aspect("equal")
-    ax.legend()
-    return ax
-
-
 if TRACK_MARKERS:
-    plot_marker_comparison()
+    plot_marker_comparison(marker_coords, marker_labels, marker_df, prob,
+                           solution)
 
 plt.show()
 
