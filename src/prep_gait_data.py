@@ -7,12 +7,18 @@ DATAFILE = '020-longitudinal-perturbation-gait-cycles.csv'
 DATAPATH = os.path.join(os.path.dirname(__file__), '..', 'data', DATAFILE)
 
 """
-
 There is an h5 file for each event (First Normal Walking, Longitudinal
 Pertrubation, Second Normal Walking) that includes a key `gait_cycles` which is
 a Pandas Panel exported as hdf5 data. The Panel's first index indexes through
 the gait cycles and selects a DataFrame that has percent gait cycle as the row
 index and all the columns with marker and joint data.
+
+Weirdly, the X, Y, Z axes do not match the coordinate system on the treadmill
+in Figure 1 in my paper. There it shows the direction of travel in the -Z
+direction. Maybe GTK transforms the axes and the raw data is in the Cortex
+axes.
+X : positive forwards
+Y : postive up
 
 In opty, we will generate joint angles for a gait cycle that can be accessed in
 the form of a 2D array with (number time points, number of joint angles).
