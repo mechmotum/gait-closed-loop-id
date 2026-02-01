@@ -42,7 +42,7 @@ OBJ_WANGLTRACK = 0  # weight of the mean squared angle tracking error (in rad)
 OBJ_WMARKTRACK = 100  # weight of the mean squared angle tracking error (in rad)
 TRACK_MARKERS = True  # track markers (as well as joint angles)
 
-# %% Load measurement data
+# Load measurement data
 if os.path.exists(GAITDATAPATH):
     # load a gait cycle from our data (trial 20)
     (duration, walking_speed, num_angles, ang_data,
@@ -98,6 +98,8 @@ par_map = simulate.load_constants(
 if TRACK_MARKERS and os.path.exists(CALIBDATAPATH):
     # TODO : subject mass (70) should be loaded from meta data files.
     scaled_par = body_segment_parameters_from_calibration(CALIBDATAPATH, 70.0)
+    # TODO : make a function that can update a dictionary using either a symbol
+    # or the symbol's name as the keys
     for c in symbolics.constants:
         try:
             par_map[c] = scaled_par[c.name]
@@ -132,6 +134,7 @@ bounds.update({k: (-np.deg2rad(400.0), np.deg2rad(400.0))
 # all joint torques
 bounds.update({k: (-600.0, 600.0)
                for k in [Tb, Tc, Td, Te, Tf, Tg]})
+# TODO : Add bounds for marker trajectories.
 
 # To enforce a half period, set the right leg's angles at the initial time to
 # be equal to the left leg's angles at the final time and vice versa. The same
@@ -283,7 +286,6 @@ prob.add_option('tol', 1e-3)
 prob.add_option('constr_viol_tol', 1e-4)
 prob.add_option('print_level', 0)
 
-# %%
 # make an initial guess from the standing solution
 logger.info('Making an initial guess.')
 fname = 'standing.csv'
