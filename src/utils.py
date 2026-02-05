@@ -324,7 +324,8 @@ def load_sample_data(num_nodes, gait_cycle_number=100):
     df = df.iloc[:11, :]  # take 0% to 50%
 
     time = df['Original Time'].values
-    time -= time[0]
+    first_time = time[0]
+    time = time - first_time
     duration = time[-1] - time[0]  # 0% to 50% duration
 
     walking_speed = 1.2  # nominal speed from trial 20 meta data
