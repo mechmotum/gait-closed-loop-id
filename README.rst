@@ -20,8 +20,14 @@ You will also need a working C compiler on your operating system. For Windows,
 you'll need the right compiler for the Python version you are using. See
 https://wiki.python.org/moin/WindowsCompilers for more info.
 
-If we make updates in gait2d or opty, you will need to recreate the
+If we make updates in gait2d or opty, you will need to either update the
 environment::
+
+   conda deactivate
+   conda env update -f gait-closed-loop-id-env.yml
+   conda activate gait-closed-loop-id
+
+or recreate the environment::
 
    conda deactivate
    conda env remove -n gait-closed-loop-id
