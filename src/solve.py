@@ -365,6 +365,5 @@ if MAKE_ANIMATION:
     xs, rs, _ = prob.parse_free(solution)
     times = prob.time_vector(solution)
     animation = animate(symbolics, xs, rs, h, walking_speed, times, par_map)
-    #animation.save('human_gait.gif', fps=int(1.0/h))
-    animation.save('human_gait.mp4', fps=int(1.0/h))
+    animation.save('human_gait.gif', fps=int(1.0/h))
     plt.show()
