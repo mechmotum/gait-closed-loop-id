@@ -21,7 +21,7 @@ import sympy as sm
 from utils import (load_winter_data, load_sample_data, GAITDATAPATH, DATADIR,
                    plot_joint_comparison, generate_marker_equations, animate,
                    CALIBDATAPATH, body_segment_parameters_from_calibration,
-                   plot_marker_comparison)
+                   plot_marker_comparison, get_sym_by_name)
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(
@@ -60,7 +60,8 @@ h = duration/(NUM_NODES - 1)
 # Derive the equations of motion
 logger.info('Deriving the equations of motion.')
 symbolics = derive_equations_of_motion(prevent_ground_penetration=False,
-                                       treadmill=True, hand_of_god=False)
+                                       treadmill=True, hand_of_god=False,
+                                       stiffness_exp=2)
 eom = symbolics.equations_of_motion
 logger.info('Number of operations in eom: {}'.format(sm.count_ops(eom)))
 
@@ -92,6 +93,9 @@ num_states = len(symbolics.states)
 # and foot deformation properties of an adult human.
 par_map = simulate.load_constants(
     symbolics.constants, os.path.join(DATADIR, 'example_constants.yml'))
+# Change stiffness value to give a 10mm static compression for a quadratic
+# force.
+par_map[get_sym_by_name('kc', symbolics.constants)] = 4e6
 
 # If there is calibration pose data, update the constants based on that
 # subject.
@@ -361,5 +365,6 @@ if MAKE_ANIMATION:
     xs, rs, _ = prob.parse_free(solution)
     times = prob.time_vector(solution)
     animation = animate(symbolics, xs, rs, h, walking_speed, times, par_map)
-    animation.save('human_gait.gif', fps=int(1.0/h))
+    #animation.save('human_gait.gif', fps=int(1.0/h))
+    animation.save('human_gait.mp4', fps=int(1.0/h))
     plt.show()

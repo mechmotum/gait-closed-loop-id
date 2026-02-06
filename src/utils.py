@@ -16,6 +16,10 @@ GAITDATAPATH = os.path.join(DATADIR, GAITFILE)
 CALIBDATAPATH = os.path.join(DATADIR, CALIBFILE)
 
 
+def get_sym_by_name(name, iterable):
+    return [s for s in iterable if s.name == name][0]
+
+
 def animate(symbolics, xs, rs, h, speed, times, par_map):
 
     ground, origin = symbolics.inertial_frame, symbolics.origin
@@ -60,13 +64,13 @@ def animate(symbolics, xs, rs, h, speed, times, par_map):
     # show ground reaction force vectors at the heels and toes, scaled to
     # visually reasonable length
     v = symbolics.specifieds[-1]
-    scene.add_vector(contact_force(rfoot.toe, ground, origin, v)/600.0,
+    scene.add_vector(contact_force(rfoot.toe, ground, origin, v, stiffness_exp=2)/600.0,
                      rfoot.toe, color="tab:blue")
-    scene.add_vector(contact_force(rfoot.heel, ground, origin, v)/600.0,
+    scene.add_vector(contact_force(rfoot.heel, ground, origin, v, stiffness_exp=2)/600.0,
                      rfoot.heel, color="tab:blue")
-    scene.add_vector(contact_force(lfoot.toe, ground, origin, v)/600.0,
+    scene.add_vector(contact_force(lfoot.toe, ground, origin, v, stiffness_exp=2)/600.0,
                      lfoot.toe, color="tab:blue")
-    scene.add_vector(contact_force(lfoot.heel, ground, origin, v)/600.0,
+    scene.add_vector(contact_force(lfoot.heel, ground, origin, v, stiffness_exp=2)/600.0,
                      lfoot.heel, color="tab:blue")
 
     scene.lambdify_system(symbolics.states + symbolics.specifieds +
@@ -93,14 +97,14 @@ def animate(symbolics, xs, rs, h, speed, times, par_map):
 
     eval_rforce = sm.lambdify(
         symbolics.states + symbolics.specifieds + symbolics.constants,
-        (contact_force(rfoot.toe, ground, origin, v) +
-            contact_force(rfoot.heel, ground, origin, v)).to_matrix(ground),
+        (contact_force(rfoot.toe, ground, origin, v, stiffness_exp=2) +
+            contact_force(rfoot.heel, ground, origin, v, stiffness_exp=2)).to_matrix(ground),
         cse=True)
 
     eval_lforce = sm.lambdify(
         symbolics.states + symbolics.specifieds + symbolics.constants,
-        (contact_force(lfoot.toe, ground, origin, v) +
-            contact_force(lfoot.heel, ground, origin, v)).to_matrix(ground),
+        (contact_force(lfoot.toe, ground, origin, v, stiffness_exp=2) +
+            contact_force(lfoot.heel, ground, origin, v, stiffness_exp=2)).to_matrix(ground),
         cse=True)
 
     rforces = np.array([eval_rforce(*gci).squeeze() for gci in gait_cycle.T])
