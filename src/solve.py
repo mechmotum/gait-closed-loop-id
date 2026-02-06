@@ -97,7 +97,7 @@ par_map = SymbolDict(simulate.load_constants(
 if STIFFNESS_EXP == 2:
     # Change stiffness value to give a 10mm static compression for a quadratic
     # force.
-    par_map['kc'] = 4e6
+    par_map['kc'] = 1e7
 
 # If there is calibration pose data, update the constants based on that
 # subject.
