@@ -41,6 +41,7 @@ OBJ_WTORQUE = 100  # weight of the mean squared torque (in kNm) objective
 OBJ_WANGLTRACK = 100  # weight of the mean squared angle tracking error (in rad)
 OBJ_WMARKTRACK = 100  # weight of the mean squared angle tracking error (in rad)
 TRACK_MARKERS = True  # track markers (as well as joint angles)
+STIFFNESS_EXP = 2
 
 # %% Load measurement data
 if os.path.exists(GAITDATAPATH):
@@ -61,7 +62,7 @@ h = duration/(NUM_NODES - 1)
 logger.info('Deriving the equations of motion.')
 symbolics = derive_equations_of_motion(prevent_ground_penetration=False,
                                        treadmill=True, hand_of_god=False,
-                                       stiffness_exp=2)
+                                       stiffness_exp=STIFFNESS_EXP)
 eom = symbolics.equations_of_motion
 logger.info('Number of operations in eom: {}'.format(sm.count_ops(eom)))
 
@@ -93,9 +94,10 @@ num_states = len(symbolics.states)
 # and foot deformation properties of an adult human.
 par_map = SymbolDict(simulate.load_constants(
     symbolics.constants, os.path.join(DATADIR, 'example_constants.yml')))
-# Change stiffness value to give a 10mm static compression for a quadratic
-# force.
-par_map['kc'] = 4e6
+if STIFFNESS_EXP == 2:
+    # Change stiffness value to give a 10mm static compression for a quadratic
+    # force.
+    par_map['kc'] = 4e6
 
 # If there is calibration pose data, update the constants based on that
 # subject.
@@ -364,6 +366,7 @@ plt.show()
 if MAKE_ANIMATION:
     xs, rs, _ = prob.parse_free(solution)
     times = prob.time_vector(solution)
-    animation = animate(symbolics, xs, rs, h, walking_speed, times, par_map)
+    animation = animate(symbolics, xs, rs, h, walking_speed, times, par_map,
+                        STIFFNESS_EXP)
     animation.save('human_gait.gif', fps=int(1.0/h))
     plt.show()
