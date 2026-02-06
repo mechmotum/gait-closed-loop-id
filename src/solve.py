@@ -21,7 +21,7 @@ import sympy as sm
 from utils import (load_winter_data, load_sample_data, GAITDATAPATH, DATADIR,
                    plot_joint_comparison, generate_marker_equations, animate,
                    CALIBDATAPATH, body_segment_parameters_from_calibration,
-                   plot_marker_comparison, get_sym_by_name)
+                   plot_marker_comparison, SymbolDict)
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(
@@ -91,11 +91,11 @@ num_states = len(symbolics.states)
 
 # The constants are loaded from a file of realistic geometry, mass, inertia,
 # and foot deformation properties of an adult human.
-par_map = simulate.load_constants(
-    symbolics.constants, os.path.join(DATADIR, 'example_constants.yml'))
+par_map = SymbolDict(simulate.load_constants(
+    symbolics.constants, os.path.join(DATADIR, 'example_constants.yml')))
 # Change stiffness value to give a 10mm static compression for a quadratic
 # force.
-par_map[get_sym_by_name('kc', symbolics.constants)] = 4e6
+par_map['kc'] = 4e6
 
 # If there is calibration pose data, update the constants based on that
 # subject.

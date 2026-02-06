@@ -16,8 +16,27 @@ GAITDATAPATH = os.path.join(DATADIR, GAITFILE)
 CALIBDATAPATH = os.path.join(DATADIR, CALIBFILE)
 
 
-def get_sym_by_name(name, iterable):
-    return [s for s in iterable if s.name == name][0]
+class SymbolDict(dict):
+    """A mapping from SymPy symbols or functions of time to arbitrary values.
+    Values can alternatively be retrieved using the string name of the symbol
+    or function of time."""
+
+    def __getitem__(self, key):
+        if isinstance(key, str):
+            keys = [sym for sym in self.keys() if sym.name == key]
+            if len(keys) != 1:
+                raise KeyError('Not found or symbols with same names.')
+            key = keys[0]
+        val = dict.__getitem__(self, key)
+        return val
+
+    def __setitem__(self, key, val):
+        if isinstance(key, str):
+            keys = [sym for sym in self.keys() if sym.name == key]
+            if len(keys) != 1:
+                raise KeyError('Not found or symbols with same names.')
+            key = keys[0]
+        dict.__setitem__(self, key, val)
 
 
 def animate(symbolics, xs, rs, h, speed, times, par_map):
