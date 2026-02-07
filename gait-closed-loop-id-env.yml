@@ -21,7 +21,6 @@ dependencies:
   - spyder-kernels
   - symmeplot
   - sympy
-  - yeadon
   # NOTE : install the development version of gait2d
   - pip:
     - git+https://github.com/csu-hmc/gait2d#egg=gait2d
