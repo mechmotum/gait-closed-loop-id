@@ -36,4 +36,4 @@ jobs:
         run: |
           conda info
           conda list
-          python src/evaluate.py
+          python src/solve_standing.py
