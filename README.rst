@@ -34,6 +34,12 @@ or recreate the environment::
    conda env create -f gait-closed-loop-id-env.yml
    conda activate gait-closed-loop-id
 
+If you know that the only thing you need to update is gait2d you can do this to
+update it::
+
+   conda activate gait-closed-loop-id
+   python -m pip install --update --no-deps --no-build-isolation -e git+https://github.com/csu-hmc/gait2d#egg=gait2d
+
 Data
 ====
 
@@ -58,10 +64,6 @@ https://doi.org/10.7717/peerj.918
 
 Run
 ===
-
-Run the code that evaluates the differential equations::
-
-   python src/evaluate.py
 
 Plot the calibration pose and a gait cycle::
 
