@@ -41,9 +41,10 @@ OBJ_WTORQUE = 100  # weight of the mean squared torque (in kNm) objective
 OBJ_WANGLTRACK = 100  # weight of the mean squared angle tracking error (in rad)
 OBJ_WMARKTRACK = 100  # weight of the mean squared angle tracking error (in rad)
 TRACK_MARKERS = True  # track markers (as well as joint angles)
-STIFFNESS_EXP = 2
+STIFFNESS_EXP = 2  # exponent of the contact stiffness force
 
-# %% Load measurement data
+# Load measurement data from Moore et al. 2015 if present, else load the
+# normative Winter's data unless tracking markers is requested.
 if os.path.exists(GAITDATAPATH):
     # load a gait cycle from our data (trial 20)
     (duration, walking_speed, num_angles, ang_data,
@@ -55,7 +56,7 @@ elif not TRACK_MARKERS:
 else:
     raise ValueError("Winter's data does not have markers to track.")
 
-# Define the fixed time step in the simulation.
+# Define the fixed time step in the simulation
 h = duration/(NUM_NODES - 1)
 
 # Derive the equations of motion
@@ -71,7 +72,7 @@ eom = EOM_SCALE * eom
 for i in range(9):
     eom[9+i] = GENFORCE_SCALE * eom[9+i]
 
-# TODO : Should the marker equations be scaled like above?
+# Markers are in units meters, so no scaling applied
 if TRACK_MARKERS:
     marker_coords, marker_eqs, marker_labels = generate_marker_equations(
         symbolics)
@@ -100,7 +101,7 @@ if STIFFNESS_EXP == 2:
     par_map['kc'] = 1e7
 
 # If there is calibration pose data, update the constants based on that
-# subject.
+# subject's size.
 if TRACK_MARKERS and os.path.exists(CALIBDATAPATH):
     # TODO : subject mass (70) should be loaded from meta data files.
     scaled_par = body_segment_parameters_from_calibration(CALIBDATAPATH, 70.0)
@@ -202,6 +203,14 @@ for ivar in range(0, num_states + num_torques):
 
 
 def obj(prob, free, obj_show=False):
+    """
+    Objectie function::
+
+        J = WANG*sum(joint_angle_error**2)
+          + WMAR*sum(marker_error**2)
+          + WTOR*sum(joint_torque**2)
+
+    """
     f_torque = (1e-6*OBJ_WTORQUE*np.sum(free[torque_indices]**2)/
                 torque_indices.size)
     f_track = (OBJ_WANGLTRACK*np.sum((free[angle_indices] - ang_data)**2)/
