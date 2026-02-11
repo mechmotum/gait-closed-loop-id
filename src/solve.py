@@ -36,12 +36,16 @@ GAIT_CYCLE_NUM = 45  # gait cycle to select from measurment data
 GENFORCE_SCALE = 0.001  # convert to kN and kNm
 MAKE_ANIMATION = True
 NUM_NODES = 50  # number of time nodes for the half period
-OBJ_WREG = 0.00000001  # weight of the mean squared time derivatives (for regularization)
+OBJ_WANGLTRACK = 100  # weight of mean squared angle tracking error (in rad)
+OBJ_WMARKTRACK = 100  # weight of mean squared marker tracking error (in meters)
+OBJ_WREG = 0.00000001  # weight of mean squared time derivatives (for regularization)
 OBJ_WTORQUE = 100  # weight of the mean squared torque (in kNm) objective
-OBJ_WANGLTRACK = 100  # weight of the mean squared angle tracking error (in rad)
-OBJ_WMARKTRACK = 100  # weight of the mean squared angle tracking error (in rad)
-TRACK_MARKERS = True  # track markers (as well as joint angles)
 STIFFNESS_EXP = 2  # exponent of the contact stiffness force
+TRACK_ANGLES = True  # track joint angles
+TRACK_MARKERS = True  # track markers
+
+if not (TRACK_ANGLES and TRACK_MARKERS):
+    raise ValueError('You must track joint angle or markers or both.')
 
 # Load measurement data from Moore et al. 2015 if present, else load the
 # normative Winter's data unless tracking markers is requested.
@@ -182,7 +186,7 @@ if TRACK_MARKERS:
 # Make indices for the free variables that are angles and torques.
 # The final node is excluded, it is the first node of the next cycle
 angle_indices = np.empty(num_angles*(NUM_NODES-1), dtype=np.int64)
-num_torques = num_angles
+num_torques = num_angles  # this is only tracking 6 angles, but there are 7 total angles
 torque_indices = np.empty(num_torques*(NUM_NODES - 1), dtype=np.int64)
 inodes = np.arange(0, NUM_NODES - 1)
 for iangle in range(0, num_angles):
@@ -202,6 +206,34 @@ for ivar in range(0, num_states + num_torques):
     reg_indices[ivar*(NUM_NODES-1) + inodes] = (ivar*NUM_NODES + inodes)
 
 
+def extract_values(self, free, *variables, drop_first=None, drop_last=None):
+    """Returns the numerical values of the free variables.
+
+    Parameters
+    ==========
+    free : ndarray, shape(n*N + q*N + r + s)
+        The free optimization vector of the system, required if var is an
+        unknown optimization variable.
+    variables : Symbol or Function()(time), len(d)
+        One or more of the known or unknown variables in the problem.
+
+    Returns
+    =======
+    values : ndarray
+        The numerical values of the variables. The shape depends on how
+        many variables and whether they are trajectories or parameters.
+
+    """
+    d = self._extraction_indices
+    idxs = []
+    for var in variables:
+        try:
+            idxs += d[var][drop_first:drop_last]
+        except KeyError:
+            raise ValueError(f'{var} not an unknown in this problem.')
+    return free[idxs]
+
+
 def obj(prob, free, obj_show=False):
     """
     Objectie function::
@@ -213,6 +245,12 @@ def obj(prob, free, obj_show=False):
     """
     f_torque = (1e-6*OBJ_WTORQUE*np.sum(free[torque_indices]**2)/
                 torque_indices.size)
+    # NOTE : This fails because extract_values gets arrays of length NUM_NODES
+    # whereas Ton's indice extraction above is getting arrays of length
+    # NUM_NODES - 1. extract_values does not make it easy to extract subsets of
+    # the nodes.
+    np.testing.assert_equal(free[torque_indices],
+                            extract_values(prob, free, Tb, Tc, Td, Te, Tf, Tg, drop_last=-1))
     f_track = (OBJ_WANGLTRACK*np.sum((free[angle_indices] - ang_data)**2)/
                angle_indices.size)
     # regularization cost is the mean of squared time derivatives of all
@@ -222,16 +260,25 @@ def obj(prob, free, obj_show=False):
     f_total = f_torque + f_track + f_reg
 
     if TRACK_MARKERS:
+        # vals -> shape(num_markers*num_nodes, 1)
+        vals = extract_values(prob, free, *marker_coords, drop_last=-1)
+        meas_vals = marker_df[marker_labels].values.flatten()
+        f_marker_track2 = OBJ_WMARKTRACK*np.sum((vals - meas_vals)**2)
         f_marker_track = 0.0
+        f_marker_track1 = 0.0
         for var, lab in zip(marker_coords, marker_labels):
-            vals = prob.extract_values(free, var)
+            vals = extract_values(prob, free, var, drop_last=-1)
             # we only return 49 nodes from measured, so add first to last
-            meas_vals = np.hstack((marker_df[lab].values,
-                                   marker_df[lab].values[0]))
+            #meas_vals = np.hstack((marker_df[lab].values,
+                                   #marker_df[lab].values[0]))
+            meas_vals = marker_df[lab].values
             # TODO : Ton divides the whole angle track by num_angles*NUM_NODES,
             # need to combine this division for angle and marker track.
             f_marker_track += (OBJ_WMARKTRACK*np.sum((vals - meas_vals)**2)/
                                len(vals)/len(marker_coords))
+            f_marker_track1 += OBJ_WMARKTRACK*np.sum((vals - meas_vals)**2)
+        # TODO : This is failing and shouldn't:
+        np.testing.assert_equal(f_marker_track1, f_marker_track2)
         f_total += f_marker_track
 
     if obj_show:
@@ -297,6 +344,9 @@ prob.add_option('max_iter', 3000)
 prob.add_option('tol', 1e-3)
 prob.add_option('constr_viol_tol', 1e-4)
 prob.add_option('print_level', 0)
+
+
+
 
 # %%
 # make an initial guess from the standing solution
