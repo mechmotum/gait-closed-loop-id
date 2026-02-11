@@ -236,29 +236,38 @@ def extract_values(self, free, *variables, drop_first=None, drop_last=None):
 
 def obj(prob, free, obj_show=False):
     """
-    Objectie function::
+    Objective function::
 
-        J = WANG*sum(joint_angle_error**2)
-          + WMAR*sum(marker_error**2)
+        J =
           + WTOR*sum(joint_torque**2)
+          + WANG*sum(joint_angle_error**2)
+          + WMAR*sum(marker_error**2)
+          + WREG*sum((dx/dt)**2)
 
     """
+    # minimize mean joint torque
     f_torque = (1e-6*OBJ_WTORQUE*np.sum(free[torque_indices]**2)/
                 torque_indices.size)
-    # NOTE : This fails because extract_values gets arrays of length NUM_NODES
-    # whereas Ton's indice extraction above is getting arrays of length
-    # NUM_NODES - 1. extract_values does not make it easy to extract subsets of
-    # the nodes.
-    np.testing.assert_equal(free[torque_indices],
-                            extract_values(prob, free, Tb, Tc, Td, Te, Tf, Tg, drop_last=-1))
+
+    torque_vals = extract_values(prob, free, Tb, Tc, Td, Te, Tf, Tg,
+                                 drop_last=-1)
+    np.testing.assert_equal(free[torque_indices], torque_vals)
+
+    # minimize mean angle tracking error
     f_track = (OBJ_WANGLTRACK*np.sum((free[angle_indices] - ang_data)**2)/
                angle_indices.size)
+
+    angle_vals = extract_values(prob, free, qb, qc, qd, qe, qf, qg,
+                                drop_last=-1)
+    np.testing.assert_equal(free[angle_indices], angle_vals)
+
     # regularization cost is the mean of squared time derivatives of all
     # variables
     f_reg = (OBJ_WREG*np.sum((free[reg_indices+1]-free[reg_indices])**2)/
              reg_indices.size/h**2)
     f_total = f_torque + f_track + f_reg
 
+    # minimize mean marker tracking error
     if TRACK_MARKERS:
         # vals -> shape(num_markers*num_nodes, 1)
         vals = extract_values(prob, free, *marker_coords, drop_last=-1)
