@@ -212,15 +212,14 @@ def obj(prob, free, obj_show=False):
     """
     Objective function::
 
-        J =
-          + WTOR*sum(joint_torque**2)
+        J = WTOR*sum(joint_torque**2)
           + WANG*sum(joint_angle_error**2)
-          + WMAR*sum(marker_error**2)
           + WREG*sum((dx/dt)**2)
+          + WMAR*sum(marker_error**2)
 
     """
     # minimize mean joint torque
-    tor_vals = extract_values(prob, free, *torque_syms, slice=(0, -1))
+    tor_vals = extract_values(prob, free, *torque_syms)
     f_tor = 1e-6*OBJ_WTORQUE*np.sum(tor_vals**2)/len(tor_vals)
 
     f_tot = f_tor
@@ -231,8 +230,8 @@ def obj(prob, free, obj_show=False):
 
     f_tot += f_track
 
-    # regularization cost is the mean of squared time derivatives of all
-    # state variables (coordinates & speeds)
+    # regularization cost is the mean of squared time derivatives of all state
+    # variables (coordinates & speeds)
     reglead_vals = extract_values(
         prob, free, *(symbolics.states + torque_syms), slice=(1, None))
     reglag_vals = extract_values(
@@ -263,18 +262,27 @@ def obj(prob, free, obj_show=False):
 
 def obj_grad(prob, free):
     grad = np.zeros_like(free)
-    grad[torque_indices] = (2e-6*OBJ_WTORQUE*free[torque_indices]/
-                            torque_indices.size)
+
+    tor_vals = extract_values(prob, free, *torque_syms)
+    prob.fill_free(grad, 2e-6*OBJ_WTORQUE*tor_vals/len(tor_vals), *torque_syms)
+
+    # TODO : This is NUM_NODES - 1 in length, so we have to tell fill_free this
+    # somehow.
+    # ang_vals = extract_values(prob, free, *angle_syms, slice=(0, -1))
+    #prob.fill_free(grad, 2.0*OBJ_WANGLTRACK*(ang_vals - ang_data)/len(ang_vals),
+                   #*angle_syms)
+
     grad[angle_indices] = (2.0*OBJ_WANGLTRACK*(free[angle_indices] - ang_data)/
                            angle_indices.size)
+
+    # the regularization gradient could be coded more efficiently, but probably
+    # not worth doing
     grad[reg_indices] = grad[reg_indices] + (
         2.0*OBJ_WREG*(free[reg_indices+1]-free[reg_indices])/
         reg_indices.size/h**2)
     grad[reg_indices+1] = grad[reg_indices+1] + (
         2.0*OBJ_WREG*(free[reg_indices+1]-free[reg_indices])/
         reg_indices.size/h**2)
-    # the regularization gradient could be coded more efficiently, but probably
-    # not worth doing
 
     if TRACK_MARKERS:
         for var, lab in zip(marker_coords, marker_labels):
