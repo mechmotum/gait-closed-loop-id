@@ -21,7 +21,7 @@ import sympy as sm
 from utils import (load_winter_data, load_sample_data, GAITDATAPATH, DATADIR,
                    plot_joint_comparison, generate_marker_equations, animate,
                    CALIBDATAPATH, body_segment_parameters_from_calibration,
-                   plot_marker_comparison, SymbolDict)
+                   plot_marker_comparison, SymbolDict, extract_values)
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(
@@ -38,7 +38,7 @@ MAKE_ANIMATION = True
 NUM_NODES = 50  # number of time nodes for the half period
 OBJ_WANGLTRACK = 100  # weight of mean squared angle tracking error (in rad)
 OBJ_WMARKTRACK = 100  # weight of mean squared marker tracking error (in meters)
-OBJ_WREG = 0.000001  # weight of mean squared time derivatives (for regularization)
+OBJ_WREG = 0.0  # weight of mean squared time derivatives (for regularization)
 OBJ_WTORQUE = 100  # weight of the mean squared torque (in kNm) objective
 STIFFNESS_EXP = 2  # exponent of the contact stiffness force
 TRACK_ANGLES = True  # track joint angles
@@ -206,34 +206,6 @@ for ivar in range(0, num_states + num_torques):
     reg_indices[ivar*(NUM_NODES-1) + inodes] = (ivar*NUM_NODES + inodes)
 
 
-def extract_values(self, free, *variables, drop_first=None, drop_last=None):
-    """Returns the numerical values of the free variables.
-
-    Parameters
-    ==========
-    free : ndarray, shape(n*N + q*N + r + s)
-        The free optimization vector of the system, required if var is an
-        unknown optimization variable.
-    variables : Symbol or Function()(time), len(d)
-        One or more of the known or unknown variables in the problem.
-
-    Returns
-    =======
-    values : ndarray
-        The numerical values of the variables. The shape depends on how
-        many variables and whether they are trajectories or parameters.
-
-    """
-    d = self._extraction_indices
-    idxs = []
-    for var in variables:
-        try:
-            idxs += d[var][drop_first:drop_last]
-        except KeyError:
-            raise ValueError(f'{var} not an unknown in this problem.')
-    return free[idxs]
-
-
 def obj(prob, free, obj_show=False):
     """
     Objective function::
@@ -246,13 +218,15 @@ def obj(prob, free, obj_show=False):
 
     """
     # minimize mean joint torque
-    tor_vals = extract_values(prob, free, Tb, Tc, Td, Te, Tf, Tg, drop_last=-1)
+    tor_vals = extract_values(prob, free, Tb, Tc, Td, Te, Tf, Tg,
+                              slice=(0, -1))
     f_tor = 1e-6*OBJ_WTORQUE*np.sum(tor_vals**2)/len(tor_vals)
 
     f_tot = f_tor
 
     # minimize mean angle tracking error
-    ang_vals = extract_values(prob, free, qb, qc, qd, qe, qf, qg, drop_last=-1)
+    ang_vals = extract_values(prob, free, qb, qc, qd, qe, qf, qg,
+                              slice=(0, -1))
     f_track = OBJ_WANGLTRACK*np.sum((ang_vals - ang_data)**2)/len(ang_vals)
 
     f_tot += f_track
@@ -261,10 +235,10 @@ def obj(prob, free, obj_show=False):
     # state variables (coordinates & speeds)
     reglead_vals = extract_values(
         prob, free, *(symbolics.states + symbolics.specifieds[:-1]),
-        drop_first=1)
+        slice=(1, None))
     reglag_vals = extract_values(
         prob, free, *(symbolics.states + symbolics.specifieds[:-1]),
-        drop_last=-1)
+        slice=(None, -1))
     f_reg = OBJ_WREG*np.sum((reglead_vals -
                              reglag_vals)**2)/h**2/len(reglead_vals)
 
@@ -273,7 +247,7 @@ def obj(prob, free, obj_show=False):
     # minimize mean marker tracking error
     if TRACK_MARKERS:
         # vals -> shape(num_markers*(num_nodes - 1), 1)
-        mar_vals = extract_values(prob, free, *marker_coords, drop_last=-1)
+        mar_vals = extract_values(prob, free, *marker_coords, slice=(None, -1))
         # TODO : Selecting the measured values can be outside of obj().
         meas_vals = marker_df[marker_labels].values.T.flatten()
         f_mar = OBJ_WMARKTRACK*np.sum((mar_vals - meas_vals)**2)/len(mar_vals)

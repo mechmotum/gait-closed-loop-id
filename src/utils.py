@@ -16,6 +16,39 @@ GAITDATAPATH = os.path.join(DATADIR, GAITFILE)
 CALIBDATAPATH = os.path.join(DATADIR, CALIBFILE)
 
 
+def extract_values(self, free, *variables, slice=(None, None)):
+    """Returns the numerical values of the free variables.
+
+    Parameters
+    ==========
+    free : ndarray, shape(n*N + q*N + r + s)
+        The free optimization vector of the system, required if var is an
+        unknown optimization variable.
+    variables : Symbol or Function()(time), len(d)
+        One or more of the known or unknown variables in the problem.
+    slice : tuple of integers
+        If provided this will allow you to select the same subset of bookended
+        slices of time from all variables. If you want state x but only want to
+        return the first half of the simulation you can do ``slice=(None,
+        num_nodes//2)`` which translates to ``x[None:num_nodes//2]``.
+
+    Returns
+    =======
+    values : ndarray
+        The numerical values of the variables. The shape depends on how
+        many variables and whether they are trajectories or parameters.
+
+    """
+    d = self._extraction_indices
+    idxs = []
+    for var in variables:
+        try:
+            idxs += d[var][slice[0]:slice[1]]
+        except KeyError:
+            raise ValueError(f'{var} not an unknown in this problem.')
+    return free[idxs]
+
+
 class SymbolDict(dict):
     """A mapping from SymPy symbols or functions of time to arbitrary values.
     Values can alternatively be retrieved using the string name of the symbol
