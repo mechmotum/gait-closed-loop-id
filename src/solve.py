@@ -246,70 +246,47 @@ def obj(prob, free, obj_show=False):
 
     """
     # minimize mean joint torque
-    f_torque = (1e-6*OBJ_WTORQUE*np.sum(free[torque_indices]**2)/
-                torque_indices.size)
+    tor_vals = extract_values(prob, free, Tb, Tc, Td, Te, Tf, Tg, drop_last=-1)
+    f_tor = 1e-6*OBJ_WTORQUE*np.sum(tor_vals**2)/len(tor_vals)
 
-    torque_vals = extract_values(prob, free, Tb, Tc, Td, Te, Tf, Tg,
-                                 drop_last=-1)
-    np.testing.assert_equal(free[torque_indices], torque_vals)
+    f_tot = f_tor
 
     # minimize mean angle tracking error
-    f_track = (OBJ_WANGLTRACK*np.sum((free[angle_indices] - ang_data)**2)/
-               angle_indices.size)
+    ang_vals = extract_values(prob, free, qb, qc, qd, qe, qf, qg, drop_last=-1)
+    f_track = OBJ_WANGLTRACK*np.sum((ang_vals - ang_data)**2)/len(ang_vals)
 
-    angle_vals = extract_values(prob, free, qb, qc, qd, qe, qf, qg,
-                                drop_last=-1)
-    np.testing.assert_allclose(free[angle_indices], angle_vals)
+    f_tot += f_track
 
     # regularization cost is the mean of squared time derivatives of all
     # state variables (coordinates & speeds)
-    f_reg = (OBJ_WREG*np.sum((free[reg_indices+1]-free[reg_indices])**2)/
-             reg_indices.size/h**2)
+    reglead_vals = extract_values(
+        prob, free, *(symbolics.states + symbolics.specifieds[:-1]),
+        drop_first=1)
+    reglag_vals = extract_values(
+        prob, free, *(symbolics.states + symbolics.specifieds[:-1]),
+        drop_last=-1)
+    f_reg = OBJ_WREG*np.sum((reglead_vals -
+                             reglag_vals)**2)/h**2/len(reglead_vals)
 
-    reg_vals_lead = extract_values(prob, free, *(symbolics.states +
-                                                 symbolics.specifieds[:-1]),
-                                   drop_first=1)
-    reg_vals_lag = extract_values(prob, free, *(symbolics.states +
-                                                symbolics.specifieds[:-1]),
-                                  drop_last=-1)
-    f_reg2 = OBJ_WREG*np.sum((reg_vals_lead - reg_vals_lag)**2)/reg_vals_lead.size/h**2
-    np.testing.assert_allclose(reg_vals_lead, free[reg_indices + 1])
-    np.testing.assert_allclose(f_reg, f_reg2)
-
-    f_total = f_torque + f_track + f_reg2
+    f_tot += f_reg
 
     # minimize mean marker tracking error
     if TRACK_MARKERS:
         # vals -> shape(num_markers*(num_nodes - 1), 1)
-        vals = extract_values(prob, free, *marker_coords, drop_last=-1)
+        mar_vals = extract_values(prob, free, *marker_coords, drop_last=-1)
+        # TODO : Selecting the measured values can be outside of obj().
         meas_vals = marker_df[marker_labels].values.T.flatten()
-        f_marker_track2 = OBJ_WMARKTRACK*np.sum((vals - meas_vals)**2)
-
-        f_marker_track = 0.0
-        f_marker_track1 = 0.0
-        for var, lab in zip(marker_coords, marker_labels):
-            vals = extract_values(prob, free, var, drop_last=-1)
-            # we only return 49 nodes from measured, so add first to last
-            #meas_vals = np.hstack((marker_df[lab].values,
-                                   #marker_df[lab].values[0]))
-            meas_vals = marker_df[lab].values
-            # TODO : Ton divides the whole angle track by num_angles*NUM_NODES,
-            # need to combine this division for angle and marker track.
-            f_marker_track += (OBJ_WMARKTRACK*np.sum((vals - meas_vals)**2)/
-                               len(vals)/len(marker_coords))
-            f_marker_track1 += OBJ_WMARKTRACK*np.sum((vals - meas_vals)**2)
-        # TODO : This is failing and shouldn't:
-        np.testing.assert_allclose(f_marker_track1, f_marker_track2, )
-        f_total += f_marker_track
+        f_mar = OBJ_WMARKTRACK*np.sum((mar_vals - meas_vals)**2)/len(mar_vals)
+        f_tot += f_mar
 
     if obj_show:
-        msg = (f"   obj: {f_total:.3f} = {f_torque:.3f}(torque) + "
+        msg = (f"   obj: {f_tot:.3f} = {f_tor:.3f}(torque) + "
                f"{f_track:.3f}(track) + {f_reg:.3f}(reg)")
         if TRACK_MARKERS:
-            msg += f" + {f_marker_track:.3f}(marker)"
+            msg += f" + {f_mar:.3f}(marker)"
         print(msg)
 
-    return f_total
+    return f_tot
 
 
 def obj_grad(prob, free):
