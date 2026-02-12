@@ -93,6 +93,8 @@ if TRACK_MARKERS:
 qax, qay, qa, qb, qc, qd, qe, qf, qg = symbolics.coordinates
 uax, uay, ua, ub, uc, ud, ue, uf, ug = symbolics.speeds
 Tb, Tc, Td, Te, Tf, Tg, v = symbolics.specifieds
+angle_syms = [qb, qc, qd, qe, qf, qg]
+torque_syms = [Tb, Tc, Td, Te, Tf, Tg]
 num_states = len(symbolics.states)
 
 # The constants are loaded from a file of realistic geometry, mass, inertia,
@@ -218,15 +220,13 @@ def obj(prob, free, obj_show=False):
 
     """
     # minimize mean joint torque
-    tor_vals = extract_values(prob, free, Tb, Tc, Td, Te, Tf, Tg,
-                              slice=(0, -1))
+    tor_vals = extract_values(prob, free, *torque_syms, slice=(0, -1))
     f_tor = 1e-6*OBJ_WTORQUE*np.sum(tor_vals**2)/len(tor_vals)
 
     f_tot = f_tor
 
     # minimize mean angle tracking error
-    ang_vals = extract_values(prob, free, qb, qc, qd, qe, qf, qg,
-                              slice=(0, -1))
+    ang_vals = extract_values(prob, free, *angle_syms, slice=(0, -1))
     f_track = OBJ_WANGLTRACK*np.sum((ang_vals - ang_data)**2)/len(ang_vals)
 
     f_tot += f_track
@@ -234,11 +234,9 @@ def obj(prob, free, obj_show=False):
     # regularization cost is the mean of squared time derivatives of all
     # state variables (coordinates & speeds)
     reglead_vals = extract_values(
-        prob, free, *(symbolics.states + symbolics.specifieds[:-1]),
-        slice=(1, None))
+        prob, free, *(symbolics.states + torque_syms), slice=(1, None))
     reglag_vals = extract_values(
-        prob, free, *(symbolics.states + symbolics.specifieds[:-1]),
-        slice=(None, -1))
+        prob, free, *(symbolics.states + torque_syms), slice=(None, -1))
     f_reg = OBJ_WREG*np.sum((reglead_vals -
                              reglag_vals)**2)/h**2/len(reglead_vals)
 
