@@ -36,10 +36,10 @@ EOM_SCALE = 10.0  # scaling factor for eom
 GAIT_CYCLE_NUM = 45  # gait cycle to select from measurment data
 GENFORCE_SCALE = 0.001  # convert to kN and kNm
 MAKE_ANIMATION = True
-NUM_NODES = 100  # number of time nodes for the half period
+NUM_NODES = 50  # number of time nodes for the half period
 OBJ_WANGLTRACK = 100  # weight of mean squared angle tracking error (in rad)
 OBJ_WMARKTRACK = 100  # weight of mean squared marker tracking error (in meters)
-OBJ_WREG = 0.0  # weight of mean squared time derivatives (for regularization)
+OBJ_WREG = 0.00000001  # weight of mean squared time derivatives (for regularization)
 OBJ_WTORQUE = 100  # weight of the mean squared torque (in kNm) objective
 STIFFNESS_EXP = 2  # exponent of the contact stiffness force
 TRACK_ANGLES = True  # track joint angles
@@ -235,8 +235,10 @@ def obj(prob, free, obj_show=False):
 
     # regularization cost is the mean of squared time derivatives of all state
     # variables (coordinates & speeds)
+    # 1 to N
     reglead_vals = extract_values(
         prob, free, *(symbolics.states + torque_syms), slice=(1, None))
+    # 0 to N - 1
     reglag_vals = extract_values(
         prob, free, *(symbolics.states + torque_syms), slice=(None, -1))
     f_reg = OBJ_WREG*np.sum((reglead_vals -
@@ -274,15 +276,19 @@ def obj_grad(prob, free):
                   2.0*OBJ_WANGLTRACK*(ang_vals - ang_data)/len(ang_vals),
                   *angle_syms, slice=(0, -1))
 
-    # TODO : Make regularization use fill_free.
-    # the regularization gradient could be coded more efficiently, but probably
-    # not worth doing
-    grad[reg_indices] = grad[reg_indices] + (
-        2.0*OBJ_WREG*(free[reg_indices+1]-free[reg_indices])/
-        reg_indices.size/h**2)
-    grad[reg_indices+1] = grad[reg_indices+1] + (
-        2.0*OBJ_WREG*(free[reg_indices+1]-free[reg_indices])/
-        reg_indices.size/h**2)
+    # 1 to N
+    reglead_vals = extract_values(
+        prob, free, *(symbolics.states + torque_syms), slice=(1, None))
+    # 0 to N - 1
+    reglag_vals = extract_values(
+        prob, free, *(symbolics.states + torque_syms), slice=(None, -1))
+    diff = OBJ_WREG*2.0*(reglead_vals - reglag_vals)/h**2/len(reglead_vals)
+    fill_free(prob, grad, -diff, *(symbolics.states + torque_syms),
+              slice=(None, -1))
+    new = extract_values(prob, grad, *(symbolics.states + torque_syms),
+                         slice=(1, None))
+    fill_free(prob, grad, new + diff, *(symbolics.states + torque_syms),
+              slice=(1, None))
 
     if TRACK_MARKERS:
         mar_vals = extract_values(prob, free, *marker_coords, slice=(0, -1))
