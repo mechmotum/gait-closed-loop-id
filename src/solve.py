@@ -39,13 +39,13 @@ MAKE_ANIMATION = True
 NUM_NODES = 50  # number of time nodes for the half period
 OBJ_WANGLTRACK = 100  # weight of mean squared angle tracking error (in rad)
 OBJ_WMARKTRACK = 100  # weight of mean squared marker tracking error (in meters)
-OBJ_WREG = 0.00000001  # weight of mean squared time derivatives (for regularization)
+OBJ_WREG = 0.000000001  # weight of mean squared time derivatives (for regularization)
 OBJ_WTORQUE = 100  # weight of the mean squared torque (in kNm) objective
 STIFFNESS_EXP = 2  # exponent of the contact stiffness force
 TRACK_ANGLES = True  # track joint angles
 TRACK_MARKERS = True  # track markers
 
-if not (TRACK_ANGLES and TRACK_MARKERS):
+if not (TRACK_ANGLES or TRACK_MARKERS):
     raise ValueError('You must track joint angle or markers or both.')
 
 # Load measurement data from Moore et al. 2015 if present, else load the
@@ -186,29 +186,6 @@ if TRACK_MARKERS:
                marker_coords[i + 2].func(0*h) - marker_sym.func(duration))
         instance_constraints += con
 
-# The objective is a combination of squared torques and squared tracking errors
-# Make indices for the free variables that are angles and torques.
-# The final node is excluded, it is the first node of the next cycle
-angle_indices = np.empty(num_angles*(NUM_NODES-1), dtype=np.int64)
-num_torques = num_angles
-torque_indices = np.empty(num_torques*(NUM_NODES - 1), dtype=np.int64)
-inodes = np.arange(0, NUM_NODES - 1)
-for iangle in range(0, num_angles):
-    # skip the first 3 DOFs and angles before iangle
-    angle_indices[iangle*(NUM_NODES - 1) + inodes] = ((3 + iangle)*NUM_NODES +
-                                                      inodes)
-for itorque in range(0, num_torques):
-    # skip the state trajectories, and torques before itorque
-    torque_indices[itorque*(NUM_NODES-1) + inodes] = (
-        (num_states+itorque)*NUM_NODES + inodes)
-
-# make indices to all trajectory variables in the first N-1 nodes,
-# for the regularization objective
-reg_indices = np.empty((num_states+num_torques)*(NUM_NODES-1), dtype=np.int64)
-for ivar in range(0, num_states + num_torques):
-    # skip the variables before ivar
-    reg_indices[ivar*(NUM_NODES-1) + inodes] = (ivar*NUM_NODES + inodes)
-
 
 def obj(prob, free, obj_show=False):
     """
@@ -218,6 +195,8 @@ def obj(prob, free, obj_show=False):
           + WANG*sum(joint_angle_error**2)
           + WREG*sum((dx/dt)**2)
           + WMAR*sum(marker_error**2)
+
+    The final node is excluded, it is the first node of the next cycle
 
     """
     # minimize mean joint torque
@@ -254,8 +233,9 @@ def obj(prob, free, obj_show=False):
         f_tot += f_mar
 
     if obj_show:
-        msg = (f"   obj: {f_tot:.3f} = {f_tor:.3f}(torque) + "
-               f"{f_track:.3f}(track) + {f_reg:.3f}(reg)")
+        msg = (f"   obj: {f_tot:.3f} = {f_tor:.3f}(torque) + {f_reg:.3f}(reg)")
+        if TRACK_ANGLES:
+            msg += f" + {f_track:.3f}(track)"
         if TRACK_MARKERS:
             msg += f" + {f_mar:.3f}(marker)"
         print(msg)
@@ -343,7 +323,8 @@ if TRACK_MARKERS:
     initial_guess = np.concatenate((initial_guess, mar_traj))
 initial_guess = initial_guess.flatten()  # make a single row vector
 np.random.seed(1)  # this makes the result reproducible
-initial_guess = initial_guess + 0.01*np.random.random_sample(initial_guess.size)
+initial_guess = initial_guess + 0.01*np.random.random_sample(len(initial_guess))
+
 
 # Solve the gait optimization problem for given belt speed
 def solve_gait(speed, initial_guess=None):
@@ -372,8 +353,10 @@ for speed in np.linspace(0.1, walking_speed, num=10):
     initial_guess = solution  # use this solution as guess for the next problem
 
 # extract angles and torques
-ang = solution[angle_indices].reshape(num_angles, NUM_NODES-1).transpose()
-tor = solution[torque_indices].reshape(num_angles, NUM_NODES-1).transpose()
+ang = extract_values(prob, solution, *angle_syms, slice=(0, -1)).reshape(
+    num_angles, NUM_NODES-1).transpose()
+tor = extract_values(prob, solution, *torque_syms, slice=(0, -1)).reshape(
+    num_angles, NUM_NODES-1).transpose()
 dat = ang_data.reshape(num_angles, NUM_NODES-1).transpose()
 
 # construct a right side full gait cycle trajectory
