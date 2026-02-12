@@ -21,7 +21,8 @@ import sympy as sm
 from utils import (load_winter_data, load_sample_data, GAITDATAPATH, DATADIR,
                    plot_joint_comparison, generate_marker_equations, animate,
                    CALIBDATAPATH, body_segment_parameters_from_calibration,
-                   plot_marker_comparison, SymbolDict, extract_values)
+                   plot_marker_comparison, SymbolDict, extract_values,
+                   fill_free)
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(
@@ -35,7 +36,7 @@ EOM_SCALE = 10.0  # scaling factor for eom
 GAIT_CYCLE_NUM = 45  # gait cycle to select from measurment data
 GENFORCE_SCALE = 0.001  # convert to kN and kNm
 MAKE_ANIMATION = True
-NUM_NODES = 50  # number of time nodes for the half period
+NUM_NODES = 100  # number of time nodes for the half period
 OBJ_WANGLTRACK = 100  # weight of mean squared angle tracking error (in rad)
 OBJ_WMARKTRACK = 100  # weight of mean squared marker tracking error (in meters)
 OBJ_WREG = 0.0  # weight of mean squared time derivatives (for regularization)
@@ -81,6 +82,7 @@ if TRACK_MARKERS:
     marker_coords, marker_eqs, marker_labels = generate_marker_equations(
         symbolics)
     eom = eom.col_join(sm.Matrix(marker_eqs))
+    mar_data = marker_df[marker_labels].values.T.flatten()
 
 # The generalized coordinates are the hip lateral position qax and veritcal
 # position qay, the trunk angle with respect to vertical qa and the relative
@@ -188,7 +190,7 @@ if TRACK_MARKERS:
 # Make indices for the free variables that are angles and torques.
 # The final node is excluded, it is the first node of the next cycle
 angle_indices = np.empty(num_angles*(NUM_NODES-1), dtype=np.int64)
-num_torques = num_angles  # this is only tracking 6 angles, but there are 7 total angles
+num_torques = num_angles
 torque_indices = np.empty(num_torques*(NUM_NODES - 1), dtype=np.int64)
 inodes = np.arange(0, NUM_NODES - 1)
 for iangle in range(0, num_angles):
@@ -224,11 +226,12 @@ def obj(prob, free, obj_show=False):
 
     f_tot = f_tor
 
-    # minimize mean angle tracking error
-    ang_vals = extract_values(prob, free, *angle_syms, slice=(0, -1))
-    f_track = OBJ_WANGLTRACK*np.sum((ang_vals - ang_data)**2)/len(ang_vals)
+    if TRACK_ANGLES:
+        # minimize mean angle tracking error
+        ang_vals = extract_values(prob, free, *angle_syms, slice=(0, -1))
+        f_track = OBJ_WANGLTRACK*np.sum((ang_vals - ang_data)**2)/len(ang_vals)
 
-    f_tot += f_track
+        f_tot += f_track
 
     # regularization cost is the mean of squared time derivatives of all state
     # variables (coordinates & speeds)
@@ -244,10 +247,8 @@ def obj(prob, free, obj_show=False):
     # minimize mean marker tracking error
     if TRACK_MARKERS:
         # vals -> shape(num_markers*(num_nodes - 1), 1)
-        mar_vals = extract_values(prob, free, *marker_coords, slice=(None, -1))
-        # TODO : Selecting the measured values can be outside of obj().
-        meas_vals = marker_df[marker_labels].values.T.flatten()
-        f_mar = OBJ_WMARKTRACK*np.sum((mar_vals - meas_vals)**2)/len(mar_vals)
+        mar_vals = extract_values(prob, free, *marker_coords, slice=(0, -1))
+        f_mar = OBJ_WMARKTRACK*np.sum((mar_vals - mar_data)**2)/len(mar_vals)
         f_tot += f_mar
 
     if obj_show:
@@ -261,20 +262,19 @@ def obj(prob, free, obj_show=False):
 
 
 def obj_grad(prob, free):
+
     grad = np.zeros_like(free)
 
     tor_vals = extract_values(prob, free, *torque_syms)
     prob.fill_free(grad, 2e-6*OBJ_WTORQUE*tor_vals/len(tor_vals), *torque_syms)
 
-    # TODO : This is NUM_NODES - 1 in length, so we have to tell fill_free this
-    # somehow.
-    # ang_vals = extract_values(prob, free, *angle_syms, slice=(0, -1))
-    #prob.fill_free(grad, 2.0*OBJ_WANGLTRACK*(ang_vals - ang_data)/len(ang_vals),
-                   #*angle_syms)
+    if TRACK_ANGLES:
+        ang_vals = extract_values(prob, free, *angle_syms, slice=(0, -1))
+        fill_free(prob, grad,
+                  2.0*OBJ_WANGLTRACK*(ang_vals - ang_data)/len(ang_vals),
+                  *angle_syms, slice=(0, -1))
 
-    grad[angle_indices] = (2.0*OBJ_WANGLTRACK*(free[angle_indices] - ang_data)/
-                           angle_indices.size)
-
+    # TODO : Make regularization use fill_free.
     # the regularization gradient could be coded more efficiently, but probably
     # not worth doing
     grad[reg_indices] = grad[reg_indices] + (
@@ -285,25 +285,20 @@ def obj_grad(prob, free):
         reg_indices.size/h**2)
 
     if TRACK_MARKERS:
-        for var, lab in zip(marker_coords, marker_labels):
-            vals = prob.extract_values(free, var)
-            meas_vals = np.hstack((marker_df[lab].values,
-                                   marker_df[lab].values[0]))
-            prob.fill_free(grad, 2.0*OBJ_WMARKTRACK*(vals - meas_vals)/
-                           len(vals)/len(marker_coords), var)
+        mar_vals = extract_values(prob, free, *marker_coords, slice=(0, -1))
+        fill_free(prob, grad,
+                  2.0*OBJ_WMARKTRACK*(mar_vals - mar_data)/len(mar_vals),
+                  *marker_coords, slice=(0, -1))
 
     return grad
 
-
-# %%
-# create the optimization problem
-logger.info('Creating the opty problem.')
 
 # Create a belt velocity signal v(t)
 traj_map = {
     v: walking_speed*np.ones(NUM_NODES),
 }
 
+logger.info('Creating the opty problem.')
 prob = Problem(
     obj,
     obj_grad,
@@ -323,10 +318,6 @@ prob.add_option('tol', 1e-3)
 prob.add_option('constr_viol_tol', 1e-4)
 prob.add_option('print_level', 0)
 
-
-
-
-# %%
 # make an initial guess from the standing solution
 logger.info('Making an initial guess.')
 fname = 'standing.csv'

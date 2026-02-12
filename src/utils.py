@@ -16,6 +16,33 @@ GAITDATAPATH = os.path.join(DATADIR, GAITFILE)
 CALIBDATAPATH = os.path.join(DATADIR, CALIBFILE)
 
 
+def fill_free(self, free, values, *variables, slice=(None, None)):
+    """Replaces the values in a vector shaped the same as the free
+    optimization vector corresponding to the variable names.
+
+    Parameters
+    ==========
+    free : ndarray, shape(n*N + q*N + r + s, )
+        Vector to replace values in.
+    values : ndarray, shape(N,) or float
+        Numerical values to insert, arrays for each variable must be in
+        order of monotonic time and then stacked in order variables. The
+        shape depends on how many variables and whether they are
+        trajectories or parameters.
+    varables: Symbol or Function()(time)
+        One or more of the unknown optimization variables in the problem.
+
+    """
+    d = self._extraction_indices
+    idxs = []
+    for var in variables:
+        try:
+            idxs += d[var][slice[0]:slice[1]]
+        except KeyError:
+            raise ValueError(f'{var} not an unknown in this problem.')
+    free[idxs] = values
+
+
 def extract_values(self, free, *variables, slice=(None, None)):
     """Returns the numerical values of the free variables.
 
