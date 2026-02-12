@@ -38,7 +38,7 @@ MAKE_ANIMATION = True
 NUM_NODES = 50  # number of time nodes for the half period
 OBJ_WANGLTRACK = 100  # weight of mean squared angle tracking error (in rad)
 OBJ_WMARKTRACK = 100  # weight of mean squared marker tracking error (in meters)
-OBJ_WREG = 0.00000001  # weight of mean squared time derivatives (for regularization)
+OBJ_WREG = 0.000001  # weight of mean squared time derivatives (for regularization)
 OBJ_WTORQUE = 100  # weight of the mean squared torque (in kNm) objective
 STIFFNESS_EXP = 2  # exponent of the contact stiffness force
 TRACK_ANGLES = True  # track joint angles
@@ -259,20 +259,32 @@ def obj(prob, free, obj_show=False):
 
     angle_vals = extract_values(prob, free, qb, qc, qd, qe, qf, qg,
                                 drop_last=-1)
-    np.testing.assert_equal(free[angle_indices], angle_vals)
+    np.testing.assert_allclose(free[angle_indices], angle_vals)
 
     # regularization cost is the mean of squared time derivatives of all
-    # variables
+    # state variables (coordinates & speeds)
     f_reg = (OBJ_WREG*np.sum((free[reg_indices+1]-free[reg_indices])**2)/
              reg_indices.size/h**2)
-    f_total = f_torque + f_track + f_reg
+
+    reg_vals_lead = extract_values(prob, free, *(symbolics.states +
+                                                 symbolics.specifieds[:-1]),
+                                   drop_first=1)
+    reg_vals_lag = extract_values(prob, free, *(symbolics.states +
+                                                symbolics.specifieds[:-1]),
+                                  drop_last=-1)
+    f_reg2 = OBJ_WREG*np.sum((reg_vals_lead - reg_vals_lag)**2)/reg_vals_lead.size/h**2
+    np.testing.assert_allclose(reg_vals_lead, free[reg_indices + 1])
+    np.testing.assert_allclose(f_reg, f_reg2)
+
+    f_total = f_torque + f_track + f_reg2
 
     # minimize mean marker tracking error
     if TRACK_MARKERS:
-        # vals -> shape(num_markers*num_nodes, 1)
+        # vals -> shape(num_markers*(num_nodes - 1), 1)
         vals = extract_values(prob, free, *marker_coords, drop_last=-1)
-        meas_vals = marker_df[marker_labels].values.flatten()
+        meas_vals = marker_df[marker_labels].values.T.flatten()
         f_marker_track2 = OBJ_WMARKTRACK*np.sum((vals - meas_vals)**2)
+
         f_marker_track = 0.0
         f_marker_track1 = 0.0
         for var, lab in zip(marker_coords, marker_labels):
@@ -287,7 +299,7 @@ def obj(prob, free, obj_show=False):
                                len(vals)/len(marker_coords))
             f_marker_track1 += OBJ_WMARKTRACK*np.sum((vals - meas_vals)**2)
         # TODO : This is failing and shouldn't:
-        np.testing.assert_equal(f_marker_track1, f_marker_track2)
+        np.testing.assert_allclose(f_marker_track1, f_marker_track2, )
         f_total += f_marker_track
 
     if obj_show:
