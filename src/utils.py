@@ -16,12 +16,13 @@ GAITDATAPATH = os.path.join(DATADIR, GAITFILE)
 CALIBDATAPATH = os.path.join(DATADIR, CALIBFILE)
 
 
-def fill_free(self, free, values, *variables, slice=(None, None)):
-    """Replaces the values in a vector shaped the same as the free
-    optimization vector corresponding to the variable names.
+def fill_free(problem, free, values, *variables, slice=(None, None)):
+    """Replaces the values in a vector shaped the same as the free optimization
+    vector corresponding to the variable names.
 
     Parameters
     ==========
+    problem : Problem
     free : ndarray, shape(n*N + q*N + r + s, )
         Vector to replace values in.
     values : ndarray, shape(N,) or float
@@ -31,9 +32,14 @@ def fill_free(self, free, values, *variables, slice=(None, None)):
         trajectories or parameters.
     varables: Symbol or Function()(time)
         One or more of the unknown optimization variables in the problem.
+    slice : tuple of integers
+        If provided this will allow you to select the same subset of bookended
+        slices of time from all variables. If you want state x but only want to
+        return the first half of the simulation you can do ``slice=(None,
+        num_nodes//2)`` which translates to ``x[None:num_nodes//2]``.
 
     """
-    d = self._extraction_indices
+    d = problem._extraction_indices
     idxs = []
     for var in variables:
         try:
@@ -43,11 +49,12 @@ def fill_free(self, free, values, *variables, slice=(None, None)):
     free[idxs] = values
 
 
-def extract_values(self, free, *variables, slice=(None, None)):
+def extract_values(problem, free, *variables, slice=(None, None)):
     """Returns the numerical values of the free variables.
 
     Parameters
     ==========
+    problem : Problem
     free : ndarray, shape(n*N + q*N + r + s)
         The free optimization vector of the system, required if var is an
         unknown optimization variable.
@@ -66,7 +73,7 @@ def extract_values(self, free, *variables, slice=(None, None)):
         many variables and whether they are trajectories or parameters.
 
     """
-    d = self._extraction_indices
+    d = problem._extraction_indices
     idxs = []
     for var in variables:
         try:
