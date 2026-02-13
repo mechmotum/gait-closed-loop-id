@@ -77,10 +77,10 @@ h = duration/(NUM_NODES - 1)
 
 # Derive the equations of motion
 logger.info('Deriving the equations of motion.')
-symbolics = derive_equations_of_motion(prevent_ground_penetration=False,
-                                       treadmill=True, hand_of_god=False,
-                                       stiffness_exp=STIFFNESS_EXP)
-eom = symbolics.equations_of_motion
+syms = derive_equations_of_motion(prevent_ground_penetration=False,
+                                  treadmill=True, hand_of_god=False,
+                                  stiffness_exp=STIFFNESS_EXP)
+eom = syms.equations_of_motion
 logger.info('Number of operations in eom: {}'.format(sm.count_ops(eom)))
 
 # Do an overall scale, and then a unit conversion to kN and kNm
@@ -91,7 +91,7 @@ for i in range(9):
 # Markers are in units meters, so no scaling applied
 if TRACK_MARKERS:
     marker_coords, marker_eqs, marker_labels = generate_marker_equations(
-        symbolics)
+        syms)
     eom = eom.col_join(sm.Matrix(marker_eqs))
     mar_data = marker_df[marker_labels].values.T.flatten()
 
@@ -103,17 +103,15 @@ if TRACK_MARKERS:
 # - left: hip (e), knee (f), ankle (g)
 #
 # Each joint has a joint torque acting between the adjacent bodies.
-qax, qay, qa, qb, qc, qd, qe, qf, qg = symbolics.coordinates
-uax, uay, ua, ub, uc, ud, ue, uf, ug = symbolics.speeds
-Tb, Tc, Td, Te, Tf, Tg, v = symbolics.specifieds
-angle_syms = [qb, qc, qd, qe, qf, qg]
-torque_syms = [Tb, Tc, Td, Te, Tf, Tg]
-num_states = len(symbolics.states)
+qax, qay, qa, qb, qc, qd, qe, qf, qg = syms.coordinates
+uax, uay, ua, ub, uc, ud, ue, uf, ug = syms.speeds
+Tb, Tc, Td, Te, Tf, Tg, v = syms.specifieds
+num_states = len(syms.states)
 
 # The constants are loaded from a file of realistic geometry, mass, inertia,
 # and foot deformation properties of an adult human.
 par_map = SymbolDict(simulate.load_constants(
-    symbolics.constants, os.path.join(DATADIR, 'example_constants.yml')))
+    syms.constants, os.path.join(DATADIR, 'example_constants.yml')))
 if STIFFNESS_EXP == 2:
     # Change stiffness value to give a 10mm static compression for a quadratic
     # force.
@@ -124,7 +122,7 @@ if STIFFNESS_EXP == 2:
 if TRACK_MARKERS and os.path.exists(CALIBDATAPATH):
     # TODO : subject mass (70) should be loaded from meta data files.
     scaled_par = body_segment_parameters_from_calibration(CALIBDATAPATH, 70.0)
-    for c in symbolics.constants:
+    for c in syms.constants:
         try:
             par_map[c] = scaled_par[c.name]
         except KeyError:
@@ -212,14 +210,15 @@ def obj(prob, free, obj_show=False):
 
     """
     # minimize mean joint torque
-    tor_vals = extract_values(prob, free, *torque_syms)
+    tor_vals = extract_values(prob, free, *syms.joint_torques)
     f_tor = 1e-6*WTOR*np.sum(tor_vals**2)/len(tor_vals)
 
     f_tot = f_tor
 
     if TRACK_ANGLES:
         # minimize mean angle tracking error
-        ang_vals = extract_values(prob, free, *angle_syms, slice=(0, -1))
+        ang_vals = extract_values(prob, free, *syms.joint_angles,
+                                  slice=(0, -1))
         f_track = WANG*np.sum((ang_vals - ang_data)**2)/len(ang_vals)
         f_tot += f_track
 
@@ -228,10 +227,10 @@ def obj(prob, free, obj_show=False):
         # state variables (coordinates & speeds)
         # 1 to N
         reglead_vals = extract_values(
-            prob, free, *(symbolics.states + torque_syms), slice=(1, None))
+            prob, free, *(syms.states + syms.joint_torques), slice=(1, None))
         # 0 to N - 1
         reglag_vals = extract_values(
-            prob, free, *(symbolics.states + torque_syms), slice=(None, -1))
+            prob, free, *(syms.states + syms.joint_torques), slice=(None, -1))
         f_reg = WREG*np.sum((reglead_vals -
                              reglag_vals)**2)/h**2/len(reglead_vals)
         f_tot += f_reg
@@ -260,28 +259,29 @@ def obj_grad(prob, free):
 
     grad = np.zeros_like(free)
 
-    tor_vals = extract_values(prob, free, *torque_syms)
-    prob.fill_free(grad, 2e-6*WTOR*tor_vals/len(tor_vals), *torque_syms)
+    tor_vals = extract_values(prob, free, *syms.joint_torques)
+    prob.fill_free(grad, 2e-6*WTOR*tor_vals/len(tor_vals), *syms.joint_torques)
 
     if TRACK_ANGLES:
-        ang_vals = extract_values(prob, free, *angle_syms, slice=(0, -1))
+        ang_vals = extract_values(prob, free, *syms.joint_angles,
+                                  slice=(0, -1))
         fill_free(prob, grad,
                   2.0*WANG*(ang_vals - ang_data)/len(ang_vals),
-                  *angle_syms, slice=(0, -1))
+                  *syms.joint_angles, slice=(0, -1))
 
     if REGULARIZE:
         # 1 to N
         reglead_vals = extract_values(
-            prob, free, *(symbolics.states + torque_syms), slice=(1, None))
+            prob, free, *(syms.states + syms.joint_torques), slice=(1, None))
         # 0 to N - 1
         reglag_vals = extract_values(
-            prob, free, *(symbolics.states + torque_syms), slice=(None, -1))
+            prob, free, *(syms.states + syms.joint_torques), slice=(None, -1))
         diff = WREG*2.0*(reglead_vals - reglag_vals)/h**2/len(reglead_vals)
-        fill_free(prob, grad, -diff, *(symbolics.states + torque_syms),
+        fill_free(prob, grad, -diff, *(syms.states + syms.joint_torques),
                   slice=(None, -1))
-        new = extract_values(prob, grad, *(symbolics.states + torque_syms),
+        new = extract_values(prob, grad, *(syms.states + syms.joint_torques),
                              slice=(1, None))
-        fill_free(prob, grad, new + diff, *(symbolics.states + torque_syms),
+        fill_free(prob, grad, new + diff, *(syms.states + syms.joint_torques),
                   slice=(1, None))
 
     if TRACK_MARKERS:
@@ -303,7 +303,7 @@ prob = Problem(
     obj,
     obj_grad,
     eom,
-    symbolics.states,
+    syms.states,
     NUM_NODES,
     h,
     known_parameter_map=par_map,
@@ -368,10 +368,12 @@ for speed in np.linspace(0.1, walking_speed, num=10):
     initial_guess = solution  # use this solution as guess for the next problem
 
 # extract angles and torques
-ang = extract_values(prob, solution, *angle_syms, slice=(0, -1)).reshape(
-    num_angles, NUM_NODES-1).transpose()
-tor = extract_values(prob, solution, *torque_syms, slice=(0, -1)).reshape(
-    num_angles, NUM_NODES-1).transpose()
+ang = extract_values(prob, solution, *syms.joint_angles,
+                     slice=(0, -1)).reshape(num_angles,
+                                            NUM_NODES-1).transpose()
+tor = extract_values(prob, solution, *syms.joint_torques,
+                     slice=(0, -1)).reshape(num_angles,
+                                            NUM_NODES-1).transpose()
 dat = ang_data.reshape(num_angles, NUM_NODES-1).transpose()
 
 # construct a right side full gait cycle trajectory
@@ -398,7 +400,7 @@ plt.show()
 if MAKE_ANIMATION:
     xs, rs, _ = prob.parse_free(solution)
     times = prob.time_vector(solution)
-    animation = animate(symbolics, xs, rs, h, walking_speed, times, par_map,
+    animation = animate(syms, xs, rs, h, walking_speed, times, par_map,
                         STIFFNESS_EXP)
     animation.save('human_gait.gif', fps=int(1.0/h))
     plt.show()
