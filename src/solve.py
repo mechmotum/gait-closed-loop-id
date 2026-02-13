@@ -156,6 +156,7 @@ bounds.update({k: (-np.deg2rad(400.0), np.deg2rad(400.0))
 # all joint torques
 bounds.update({k: (-600.0, 600.0)
                for k in [Tb, Tc, Td, Te, Tf, Tg]})
+# TODO : Add bounds for marker trajectories.
 
 # To enforce a half period, set the right leg's angles at the initial time to
 # be equal to the left leg's angles at the final time and vice versa. The same
