@@ -260,6 +260,7 @@ def generate_marker_equations(symbolics):
 
     # TODO : Only tracking ankle, need to scale model before tracking multiple
     # markers works.
+    # I think the code will only work if these are uncommented in pairs.
     points = {
         'ank_l': lshank.joint,  # left ankle
         'ank_r': rshank.joint,  # right ankle

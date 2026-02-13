@@ -46,14 +46,15 @@ GAIT_CYCLE_NUM = 45  # gait cycle to select from measurment data
 GENFORCE_SCALE = 0.001  # convert to kN and kNm
 MAKE_ANIMATION = True
 NUM_NODES = 50  # number of time nodes for the half period
-OBJ_WANGLTRACK = 100  # weight of mean squared angle tracking error (in rad)
-OBJ_WMARKTRACK = 100  # weight of mean squared marker tracking error (in meters)
-OBJ_WREG = 0.00000001  # weight of mean squared time derivatives (for regularization)
-OBJ_WTORQUE = 100  # weight of the mean squared torque (in kNm) objective
-REGULARIZE = True
+REGULARIZE = True  # smooth trajectories in objective
+SEED = True  # set to integer value for specific seed value
 STIFFNESS_EXP = 2  # exponent of the contact stiffness force
 TRACK_ANGLES = True  # track joint angles
 TRACK_MARKERS = True  # track markers
+WANG = 100*0.175/6.805  # weight of mean squared angle tracking error (in rad)
+WMAR = 100*0.175/0.004  # weight of mean squared marker tracking error (in meters)
+WREG = 0.00000001*0.175/0.002  # weight of mean squared time derivatives
+WTOR = 100  # weight of the mean squared torque (in kNm) objective
 
 if not (TRACK_ANGLES or TRACK_MARKERS):
     raise ValueError('You must track joint angle or markers or both.')
@@ -155,7 +156,7 @@ bounds.update({k: (-np.deg2rad(40.0), np.deg2rad(40.0))
 bounds.update({k: (-np.deg2rad(400.0), np.deg2rad(400.0))
                for k in [ua, ub, uc, ud, ue, uf, ug]})
 # all joint torques
-bounds.update({k: (-300.0, 300.0)
+bounds.update({k: (-600.0, 600.0)
                for k in [Tb, Tc, Td, Te, Tf, Tg]})
 
 # To enforce a half period, set the right leg's angles at the initial time to
@@ -212,14 +213,14 @@ def obj(prob, free, obj_show=False):
     """
     # minimize mean joint torque
     tor_vals = extract_values(prob, free, *torque_syms)
-    f_tor = 1e-6*OBJ_WTORQUE*np.sum(tor_vals**2)/len(tor_vals)
+    f_tor = 1e-6*WTOR*np.sum(tor_vals**2)/len(tor_vals)
 
     f_tot = f_tor
 
     if TRACK_ANGLES:
         # minimize mean angle tracking error
         ang_vals = extract_values(prob, free, *angle_syms, slice=(0, -1))
-        f_track = OBJ_WANGLTRACK*np.sum((ang_vals - ang_data)**2)/len(ang_vals)
+        f_track = WANG*np.sum((ang_vals - ang_data)**2)/len(ang_vals)
         f_tot += f_track
 
     if REGULARIZE:
@@ -231,21 +232,21 @@ def obj(prob, free, obj_show=False):
         # 0 to N - 1
         reglag_vals = extract_values(
             prob, free, *(symbolics.states + torque_syms), slice=(None, -1))
-        f_reg = OBJ_WREG*np.sum((reglead_vals -
-                                reglag_vals)**2)/h**2/len(reglead_vals)
+        f_reg = WREG*np.sum((reglead_vals -
+                             reglag_vals)**2)/h**2/len(reglead_vals)
         f_tot += f_reg
 
     # minimize mean marker tracking error
     if TRACK_MARKERS:
         # vals -> shape(num_markers*(num_nodes - 1), 1)
         mar_vals = extract_values(prob, free, *marker_coords, slice=(0, -1))
-        f_mar = OBJ_WMARKTRACK*np.sum((mar_vals - mar_data)**2)/len(mar_vals)
+        f_mar = WMAR*np.sum((mar_vals - mar_data)**2)/len(mar_vals)
         f_tot += f_mar
 
     if obj_show:
         msg = (f"   obj: {f_tot:.3f} = {f_tor:.3f}(torque)")
         if REGULARIZE:
-            msg += f"  + {f_reg:.3f}(reg)"
+            msg += f" + {f_reg:.3f}(reg)"
         if TRACK_ANGLES:
             msg += f" + {f_track:.3f}(angle)"
         if TRACK_MARKERS:
@@ -260,12 +261,12 @@ def obj_grad(prob, free):
     grad = np.zeros_like(free)
 
     tor_vals = extract_values(prob, free, *torque_syms)
-    prob.fill_free(grad, 2e-6*OBJ_WTORQUE*tor_vals/len(tor_vals), *torque_syms)
+    prob.fill_free(grad, 2e-6*WTOR*tor_vals/len(tor_vals), *torque_syms)
 
     if TRACK_ANGLES:
         ang_vals = extract_values(prob, free, *angle_syms, slice=(0, -1))
         fill_free(prob, grad,
-                  2.0*OBJ_WANGLTRACK*(ang_vals - ang_data)/len(ang_vals),
+                  2.0*WANG*(ang_vals - ang_data)/len(ang_vals),
                   *angle_syms, slice=(0, -1))
 
     if REGULARIZE:
@@ -275,7 +276,7 @@ def obj_grad(prob, free):
         # 0 to N - 1
         reglag_vals = extract_values(
             prob, free, *(symbolics.states + torque_syms), slice=(None, -1))
-        diff = OBJ_WREG*2.0*(reglead_vals - reglag_vals)/h**2/len(reglead_vals)
+        diff = WREG*2.0*(reglead_vals - reglag_vals)/h**2/len(reglead_vals)
         fill_free(prob, grad, -diff, *(symbolics.states + torque_syms),
                   slice=(None, -1))
         new = extract_values(prob, grad, *(symbolics.states + torque_syms),
@@ -286,7 +287,7 @@ def obj_grad(prob, free):
     if TRACK_MARKERS:
         mar_vals = extract_values(prob, free, *marker_coords, slice=(0, -1))
         fill_free(prob, grad,
-                  2.0*OBJ_WMARKTRACK*(mar_vals - mar_data)/len(mar_vals),
+                  2.0*WMAR*(mar_vals - mar_data)/len(mar_vals),
                   *marker_coords, slice=(0, -1))
 
     return grad
@@ -335,7 +336,8 @@ if TRACK_MARKERS:
     mar_traj = np.zeros((len(marker_coords), NUM_NODES))
     initial_guess = np.concatenate((initial_guess, mar_traj))
 initial_guess = initial_guess.flatten()  # make a single row vector
-np.random.seed(1)  # this makes the result reproducible
+if SEED:
+    np.random.seed(SEED)  # this makes the result reproducible
 initial_guess = initial_guess + 0.01*np.random.random_sample(len(initial_guess))
 
 
