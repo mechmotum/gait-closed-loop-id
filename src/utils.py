@@ -16,7 +16,97 @@ GAITDATAPATH = os.path.join(DATADIR, GAITFILE)
 CALIBDATAPATH = os.path.join(DATADIR, CALIBFILE)
 
 
-def animate(symbolics, xs, rs, h, speed, times, par_map):
+def fill_free(problem, free, values, *variables, slice=(None, None)):
+    """Replaces the values in a vector shaped the same as the free optimization
+    vector corresponding to the variable names.
+
+    Parameters
+    ==========
+    problem : Problem
+    free : ndarray, shape(n*N + q*N + r + s, )
+        Vector to replace values in.
+    values : ndarray, shape(N,) or float
+        Numerical values to insert, arrays for each variable must be in
+        order of monotonic time and then stacked in order variables. The
+        shape depends on how many variables and whether they are
+        trajectories or parameters.
+    varables: Symbol or Function()(time)
+        One or more of the unknown optimization variables in the problem.
+    slice : tuple of integers
+        If provided this will allow you to select the same subset of bookended
+        slices of time from all variables. If you want state x but only want to
+        return the first half of the simulation you can do ``slice=(None,
+        num_nodes//2)`` which translates to ``x[None:num_nodes//2]``.
+
+    """
+    d = problem._extraction_indices
+    idxs = []
+    for var in variables:
+        try:
+            idxs += d[var][slice[0]:slice[1]]
+        except KeyError:
+            raise ValueError(f'{var} not an unknown in this problem.')
+    free[idxs] = values
+
+
+def extract_values(problem, free, *variables, slice=(None, None)):
+    """Returns the numerical values of the free variables.
+
+    Parameters
+    ==========
+    problem : Problem
+    free : ndarray, shape(n*N + q*N + r + s)
+        The free optimization vector of the system, required if var is an
+        unknown optimization variable.
+    variables : Symbol or Function()(time), len(d)
+        One or more of the known or unknown variables in the problem.
+    slice : tuple of integers
+        If provided this will allow you to select the same subset of bookended
+        slices of time from all variables. If you want state x but only want to
+        return the first half of the simulation you can do ``slice=(None,
+        num_nodes//2)`` which translates to ``x[None:num_nodes//2]``.
+
+    Returns
+    =======
+    values : ndarray
+        The numerical values of the variables. The shape depends on how
+        many variables and whether they are trajectories or parameters.
+
+    """
+    d = problem._extraction_indices
+    idxs = []
+    for var in variables:
+        try:
+            idxs += d[var][slice[0]:slice[1]]
+        except KeyError:
+            raise ValueError(f'{var} not an unknown in this problem.')
+    return free[idxs]
+
+
+class SymbolDict(dict):
+    """A mapping from SymPy symbols or functions of time to arbitrary values.
+    Values can alternatively be retrieved using the string name of the symbol
+    or function of time."""
+
+    def __getitem__(self, key):
+        if isinstance(key, str):
+            keys = [sym for sym in self.keys() if sym.name == key]
+            if len(keys) != 1:
+                raise KeyError('Not found or symbols with same names.')
+            key = keys[0]
+        val = dict.__getitem__(self, key)
+        return val
+
+    def __setitem__(self, key, val):
+        if isinstance(key, str):
+            keys = [sym for sym in self.keys() if sym.name == key]
+            if len(keys) != 1:
+                raise KeyError('Not found or symbols with same names.')
+            key = keys[0]
+        dict.__setitem__(self, key, val)
+
+
+def animate(symbolics, xs, rs, h, speed, times, par_map, stiffness_exp):
 
     ground, origin = symbolics.inertial_frame, symbolics.origin
     trunk, rthigh, rshank, rfoot, lthigh, lshank, lfoot = symbolics.segments
@@ -60,13 +150,17 @@ def animate(symbolics, xs, rs, h, speed, times, par_map):
     # show ground reaction force vectors at the heels and toes, scaled to
     # visually reasonable length
     v = symbolics.specifieds[-1]
-    scene.add_vector(contact_force(rfoot.toe, ground, origin, v)/600.0,
+    scene.add_vector(contact_force(rfoot.toe, ground, origin, v,
+                                   stiffness_exp=stiffness_exp)/600.0,
                      rfoot.toe, color="tab:blue")
-    scene.add_vector(contact_force(rfoot.heel, ground, origin, v)/600.0,
+    scene.add_vector(contact_force(rfoot.heel, ground, origin, v,
+                                   stiffness_exp=stiffness_exp)/600.0,
                      rfoot.heel, color="tab:blue")
-    scene.add_vector(contact_force(lfoot.toe, ground, origin, v)/600.0,
+    scene.add_vector(contact_force(lfoot.toe, ground, origin, v,
+                                   stiffness_exp=stiffness_exp)/600.0,
                      lfoot.toe, color="tab:blue")
-    scene.add_vector(contact_force(lfoot.heel, ground, origin, v)/600.0,
+    scene.add_vector(contact_force(lfoot.heel, ground, origin, v,
+                                   stiffness_exp=stiffness_exp)/600.0,
                      lfoot.heel, color="tab:blue")
 
     scene.lambdify_system(symbolics.states + symbolics.specifieds +
@@ -93,14 +187,18 @@ def animate(symbolics, xs, rs, h, speed, times, par_map):
 
     eval_rforce = sm.lambdify(
         symbolics.states + symbolics.specifieds + symbolics.constants,
-        (contact_force(rfoot.toe, ground, origin, v) +
-            contact_force(rfoot.heel, ground, origin, v)).to_matrix(ground),
+        (contact_force(rfoot.toe, ground, origin, v,
+                       stiffness_exp=stiffness_exp) +
+         contact_force(rfoot.heel, ground, origin, v,
+                       stiffness_exp=stiffness_exp)).to_matrix(ground),
         cse=True)
 
     eval_lforce = sm.lambdify(
         symbolics.states + symbolics.specifieds + symbolics.constants,
-        (contact_force(lfoot.toe, ground, origin, v) +
-            contact_force(lfoot.heel, ground, origin, v)).to_matrix(ground),
+        (contact_force(lfoot.toe, ground, origin, v,
+                       stiffness_exp=stiffness_exp) +
+         contact_force(lfoot.heel, ground, origin, v,
+                       stiffness_exp=stiffness_exp)).to_matrix(ground),
         cse=True)
 
     rforces = np.array([eval_rforce(*gci).squeeze() for gci in gait_cycle.T])
@@ -162,6 +260,7 @@ def generate_marker_equations(symbolics):
 
     # TODO : Only tracking ankle, need to scale model before tracking multiple
     # markers works.
+    # I think the code will only work if these are uncommented in pairs.
     points = {
         'ank_l': lshank.joint,  # left ankle
         'ank_r': rshank.joint,  # right ankle
@@ -324,7 +423,8 @@ def load_sample_data(num_nodes, gait_cycle_number=100):
     df = df.iloc[:11, :]  # take 0% to 50%
 
     time = df['Original Time'].values
-    time -= time[0]
+    first_time = time[0]
+    time = time - first_time
     duration = time[-1] - time[0]  # 0% to 50% duration
 
     walking_speed = 1.2  # nominal speed from trial 20 meta data

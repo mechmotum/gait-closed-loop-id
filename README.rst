@@ -20,13 +20,25 @@ You will also need a working C compiler on your operating system. For Windows,
 you'll need the right compiler for the Python version you are using. See
 https://wiki.python.org/moin/WindowsCompilers for more info.
 
-If we make updates in gait2d or opty, you will need to recreate the
+If we make updates in gait2d or opty, you will need to either update the
 environment::
+
+   conda deactivate
+   conda env update -f gait-closed-loop-id-env.yml
+   conda activate gait-closed-loop-id
+
+or recreate the environment::
 
    conda deactivate
    conda env remove -n gait-closed-loop-id
    conda env create -f gait-closed-loop-id-env.yml
    conda activate gait-closed-loop-id
+
+If you know that the only thing you need to update is gait2d you can do this to
+update it::
+
+   conda activate gait-closed-loop-id
+   python -m pip install -U --no-deps --no-build-isolation -e git+https://github.com/csu-hmc/gait2d#egg=gait2d
 
 Data
 ====
@@ -52,10 +64,6 @@ https://doi.org/10.7717/peerj.918
 
 Run
 ===
-
-Run the code that evaluates the differential equations::
-
-   python src/evaluate.py
 
 Plot the calibration pose and a gait cycle::
 

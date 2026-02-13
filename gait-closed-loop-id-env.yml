@@ -10,6 +10,7 @@ dependencies:
   - ipython
   - matplotlib
   - numpy
+  - opty >=1.5.0
   - pandas
   - pip
   - pydy
@@ -20,8 +21,6 @@ dependencies:
   - spyder-kernels
   - symmeplot
   - sympy
-  - yeadon
-  # NOTE : install the development version of opty and gait2d
+  # NOTE : install the development version of gait2d
   - pip:
-    - git+https://github.com/csu-hmc/opty#egg=opty
     - git+https://github.com/csu-hmc/gait2d#egg=gait2d
