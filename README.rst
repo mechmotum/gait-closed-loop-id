@@ -38,7 +38,7 @@ If you know that the only thing you need to update is gait2d you can do this to
 update it::
 
    conda activate gait-closed-loop-id
-   python -m pip install --update --no-deps --no-build-isolation -e git+https://github.com/csu-hmc/gait2d#egg=gait2d
+   python -m pip install -U --no-deps --no-build-isolation -e git+https://github.com/csu-hmc/gait2d#egg=gait2d
 
 Data
 ====

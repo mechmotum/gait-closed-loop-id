@@ -16,6 +16,73 @@ GAITDATAPATH = os.path.join(DATADIR, GAITFILE)
 CALIBDATAPATH = os.path.join(DATADIR, CALIBFILE)
 
 
+def fill_free(problem, free, values, *variables, slice=(None, None)):
+    """Replaces the values in a vector shaped the same as the free optimization
+    vector corresponding to the variable names.
+
+    Parameters
+    ==========
+    problem : Problem
+    free : ndarray, shape(n*N + q*N + r + s, )
+        Vector to replace values in.
+    values : ndarray, shape(N,) or float
+        Numerical values to insert, arrays for each variable must be in
+        order of monotonic time and then stacked in order variables. The
+        shape depends on how many variables and whether they are
+        trajectories or parameters.
+    varables: Symbol or Function()(time)
+        One or more of the unknown optimization variables in the problem.
+    slice : tuple of integers
+        If provided this will allow you to select the same subset of bookended
+        slices of time from all variables. If you want state x but only want to
+        return the first half of the simulation you can do ``slice=(None,
+        num_nodes//2)`` which translates to ``x[None:num_nodes//2]``.
+
+    """
+    d = problem._extraction_indices
+    idxs = []
+    for var in variables:
+        try:
+            idxs += d[var][slice[0]:slice[1]]
+        except KeyError:
+            raise ValueError(f'{var} not an unknown in this problem.')
+    free[idxs] = values
+
+
+def extract_values(problem, free, *variables, slice=(None, None)):
+    """Returns the numerical values of the free variables.
+
+    Parameters
+    ==========
+    problem : Problem
+    free : ndarray, shape(n*N + q*N + r + s)
+        The free optimization vector of the system, required if var is an
+        unknown optimization variable.
+    variables : Symbol or Function()(time), len(d)
+        One or more of the known or unknown variables in the problem.
+    slice : tuple of integers
+        If provided this will allow you to select the same subset of bookended
+        slices of time from all variables. If you want state x but only want to
+        return the first half of the simulation you can do ``slice=(None,
+        num_nodes//2)`` which translates to ``x[None:num_nodes//2]``.
+
+    Returns
+    =======
+    values : ndarray
+        The numerical values of the variables. The shape depends on how
+        many variables and whether they are trajectories or parameters.
+
+    """
+    d = problem._extraction_indices
+    idxs = []
+    for var in variables:
+        try:
+            idxs += d[var][slice[0]:slice[1]]
+        except KeyError:
+            raise ValueError(f'{var} not an unknown in this problem.')
+    return free[idxs]
+
+
 class SymbolDict(dict):
     """A mapping from SymPy symbols or functions of time to arbitrary values.
     Values can alternatively be retrieved using the string name of the symbol
@@ -193,6 +260,7 @@ def generate_marker_equations(symbolics):
 
     # TODO : Only tracking ankle, need to scale model before tracking multiple
     # markers works.
+    # I think the code will only work if these are uncommented in pairs.
     points = {
         'ank_l': lshank.joint,  # left ankle
         'ank_r': rshank.joint,  # right ankle
