@@ -51,9 +51,9 @@ SEED = True  # set to integer value for specific seed value
 STIFFNESS_EXP = 2  # exponent of the contact stiffness force
 TRACK_ANGLES = True  # track joint angles
 TRACK_MARKERS = True  # track markers
-WANG = 100*0.175/6.805  # weight of mean squared angle tracking error (in rad)
-WMAR = 100*0.175/0.004  # weight of mean squared marker tracking error (in meters)
-WREG = 0.00000001*0.175/0.002  # weight of mean squared time derivatives
+WANG = 100  # weight of mean squared angle tracking error (in rad)
+WMAR = 100  # weight of mean squared marker tracking error (in meters)
+WREG = 0.0000001  # weight of mean squared time derivatives
 WTOR = 100  # weight of the mean squared torque (in kNm) objective
 
 if not (TRACK_ANGLES or TRACK_MARKERS):
