@@ -49,6 +49,7 @@ NUM_NODES = 50  # number of time nodes for the half period
 REGULARIZE = True  # smooth trajectories in objective
 SEED = True  # set to integer value for specific seed value
 STIFFNESS_EXP = 2  # exponent of the contact stiffness force
+SUBJECT_MASS = 70.0  # kg of subject from trial 20, TODO: extract from metadata
 TRACK_ANGLES = True  # track joint angles
 TRACK_MARKERS = True  # track markers
 WANG = 100  # weight of mean squared angle tracking error (in rad)
@@ -121,7 +122,8 @@ if STIFFNESS_EXP == 2:
 # subject's size.
 if TRACK_MARKERS and os.path.exists(CALIBDATAPATH):
     # TODO : subject mass (70) should be loaded from meta data files.
-    scaled_par = body_segment_parameters_from_calibration(CALIBDATAPATH, 70.0)
+    scaled_par = body_segment_parameters_from_calibration(CALIBDATAPATH,
+                                                          SUBJECT_MASS)
     for c in syms.constants:
         try:
             par_map[c] = scaled_par[c.name]
@@ -389,7 +391,16 @@ dat[:, 1] = -dat[:, 1]
 tor[:, [0, 2]] = -tor[:, [0, 2]]
 
 # Generate plots and animations
-plot_joint_comparison(t, ang, tor, dat)
+if TRACK_MARKERS:
+    # TODO : Extract the measured joint torques from the Winter's data also.
+    tor_meas = kinetic_df.values
+    tor_meas = np.vstack((tor_meas[:, 0:3],
+                          tor_meas[:, 3:6],
+                          tor_meas[1, 0:3]))
+    tor_meas[:, 1] = -tor_meas[:, 1]
+    plot_joint_comparison(t, ang, tor, dat, torques_meas=tor_meas)
+else:
+    plot_joint_comparison(t, ang, tor, dat)
 
 if TRACK_MARKERS:
     plot_marker_comparison(marker_coords, marker_labels, marker_df, prob,

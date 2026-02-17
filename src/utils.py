@@ -477,12 +477,12 @@ def load_sample_data(num_nodes, gait_cycle_number=100):
         #'FP2.ForX',
         #'FP2.ForY',
         #'FP2.ForZ',
-        'Left.Hip.Flexion.Moment',
-        'Left.Knee.Flexion.Moment',
-        'Left.Ankle.PlantarFlexion.Moment',
         'Right.Hip.Flexion.Moment',
         'Right.Knee.Flexion.Moment',
         'Right.Ankle.PlantarFlexion.Moment',
+        'Left.Hip.Flexion.Moment',
+        'Left.Knee.Flexion.Moment',
+        'Left.Ankle.PlantarFlexion.Moment',
     ]
     kinetic_vals = df[kinetics].values
 
@@ -498,7 +498,8 @@ def load_sample_data(num_nodes, gait_cycle_number=100):
             mark_df, kinetic_df)
 
 
-def plot_joint_comparison(t, angles, torques, angles_meas, torques_meas=None):
+def plot_joint_comparison(t, angles, torques, angles_meas, torques_meas=None,
+                          grf=None, grf_meas=None):
     """
     Parameters
     ==========
@@ -512,13 +513,21 @@ def plot_joint_comparison(t, angles, torques, angles_meas, torques_meas=None):
         hip flexion, knee flexion, ankle dorsiflexion
     torques_meas : array_like, shape(N, 3), optional
         hip extension, knee extension, ankle plantarflexion
+    grf : array_like, shape(N, 2)
+        horizontal, vertical
+    grf_meas : array_like, shape(N, 2)
+        horizontal, vertical
 
     Returns
     =======
     axes : shape(2,)
 
     """
-    fig, axes = plt.subplots(2, 1, figsize=(6.0, 9.0))
+    if grf is not None:
+        fig, axes = plt.subplots(3, 1, figsize=(6.0, 9.0))
+        grf_labels = ('horizontal', 'vertical')
+    else:
+        fig, axes = plt.subplots(2, 1, figsize=(6.0, 9.0))
     colors = ('C0', 'C1', 'C2')
 
     anglabels = ('hip flexion', 'knee flexion', 'ankle dorsiflexion')
@@ -535,10 +544,24 @@ def plot_joint_comparison(t, angles, torques, angles_meas, torques_meas=None):
         axes[1].plot(t, tor, color=color, label=lab)
     if torques_meas is not None:
         for tor, color, lab in zip(torques_meas.T, colors, torlabels):
-            axes[1].plot(t, tor, color=color, label=lab + ' measured')
+            axes[1].plot(t, tor, color=color, linestyle='--',
+                         label=lab + ' measured')
     axes[1].legend()
     axes[1].set_ylabel('Torque [Nm]')
     axes[1].set_xlabel('Time [s]')
+
+    if grf is not None:
+        for grf_com, color, lab in zip(grf.T, colors, grf_labels):
+            axes[2].plot(t, grf_com, color=color, label=lab)
+    if grf_meas is not None:
+        for grf_com, color, lab in zip(grf_meas.T, colors, grf_labels):
+            axes[2].plot(t, grf_com, color=color, linestyle='--',
+                         label=lab + ' measured')
+
+    if (grf is not None) or (grf_meas is not None):
+        axes[2].set_ylabel('Ground reaction force [N]')
+        axes[2].set_xlabel('Time [s]')
+        axes[2].legend()
 
     return axes
 
