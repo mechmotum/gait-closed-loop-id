@@ -3,3 +3,4 @@ src/human_gait.gif
 src/human_gait_40_nodes_solution.csv
 *.csv
 data/020-longitudinal-perturbation-gait-cycles.csv
+/src/gait_codegen
