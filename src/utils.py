@@ -265,20 +265,22 @@ def generate_marker_equations(symbolics):
     O, N = symbolics.origin, symbolics.inertial_frame
     trunk, rthigh, rshank, rfoot, lthigh, lshank, lfoot = symbolics.segments
 
-    # TODO : Only tracking ankle, need to scale model before tracking multiple
-    # markers works.
     # I think the code will only work if these are uncommented in pairs.
     points = {
         'ank_l': lshank.joint,  # left ankle
         'ank_r': rshank.joint,  # right ankle
-        #'hel_l': lfoot.heel,
-        #'hel_r': rfoot.heel,
+        #'hel_l': lfoot.heel.locatenew(
+            #'hee_l', -symbolics.constants[-5]*lfoot.reference_frame.y),
+        #'hel_r': rfoot.heel.locatenew(
+            #'hee_r', -symbolics.constants[-5]*rfoot.reference_frame.y),
         #'hip_l': trunk.joint,  # hip
         #'hip_r': trunk.joint,  # hip
         #'kne_l': lthigh.joint,  # left knee
         #'kne_r': rthigh.joint,  # right knee
-        #'toe_l': lfoot.toe,
-        #'toe_r': rfoot.toe,
+        #'toe_l': lfoot.toe.locatenew(
+            #'toe_l', -symbolics.constants[-5]*lfoot.reference_frame.y),
+        #'toe_r': rfoot.toe.locatenew(
+            #'toe_r', -symbolics.constants[-5]*rfoot.reference_frame.y),
     }
 
     point_data_map = {
@@ -290,8 +292,8 @@ def generate_marker_equations(symbolics):
         #'hip_r': 'RGTRO',
         #'kne_l': 'LLEK',
         #'kne_r': 'RLEK',
-        #'toe_l': 'LTOE',
-        #'toe_r': 'RTOE',
+        #'toe_l': 'LMT5',
+        #'toe_r': 'RMT5',
     }
 
     variables = []
@@ -458,6 +460,8 @@ def load_sample_data(num_nodes, gait_cycle_number=100):
         'LLEK.PosY',
         'LLM.PosX',
         'LLM.PosY',
+        'LMT5.PosX',
+        'LMT5.PosY',
         'LSHO.PosX',
         'LSHO.PosY',
         'LTOE.PosX',
@@ -470,6 +474,8 @@ def load_sample_data(num_nodes, gait_cycle_number=100):
         'RLEK.PosY',
         'RLM.PosX',
         'RLM.PosY',
+        'RMT5.PosX',
+        'RMT5.PosY',
         'RSHO.PosX',
         'RSHO.PosY',
         'RTOE.PosX',
