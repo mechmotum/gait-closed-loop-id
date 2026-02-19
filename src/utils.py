@@ -16,7 +16,8 @@ GAITDATAPATH = os.path.join(DATADIR, GAITFILE)
 CALIBDATAPATH = os.path.join(DATADIR, CALIBFILE)
 
 
-def fill_free(problem, free, values, *variables, slice=(None, None)):
+def fill_free(problem, free, values, *variables, slice=(None, None),
+              add=False):
     """Replaces the values in a vector shaped the same as the free optimization
     vector corresponding to the variable names.
 
@@ -37,6 +38,9 @@ def fill_free(problem, free, values, *variables, slice=(None, None)):
         slices of time from all variables. If you want state x but only want to
         return the first half of the simulation you can do ``slice=(None,
         num_nodes//2)`` which translates to ``x[None:num_nodes//2]``.
+    add : boolean, optional
+        If true the values will be added to the existing values in free instead
+        of being overwritten.
 
     """
     d = problem._extraction_indices
@@ -46,7 +50,10 @@ def fill_free(problem, free, values, *variables, slice=(None, None)):
             idxs += d[var][slice[0]:slice[1]]
         except KeyError:
             raise ValueError(f'{var} not an unknown in this problem.')
-    free[idxs] = values
+    if add:
+        free[idxs] += values
+    else:
+        free[idxs] = values
 
 
 def extract_values(problem, free, *variables, slice=(None, None)):
