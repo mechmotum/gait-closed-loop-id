@@ -266,6 +266,7 @@ def generate_marker_equations(symbolics):
     trunk, rthigh, rshank, rfoot, lthigh, lshank, lfoot = symbolics.segments
 
     # I think the code will only work if these are uncommented in pairs.
+    # The heel and toe markers are above the ground by the distance fyd, fyg.
     points = {
         'ank_l': lshank.joint,  # left ankle
         'ank_r': rshank.joint,  # right ankle
