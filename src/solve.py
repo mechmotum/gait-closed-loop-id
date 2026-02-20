@@ -111,8 +111,8 @@ num_states = len(syms.states)
 par_map = SymbolDict(simulate.load_constants(
     syms.constants, os.path.join(DATADIR, 'example_constants.yml')))
 if STIFFNESS_EXP == 2:
-    # Change stiffness value to give a 10mm static compression for a quadratic
-    # force.
+    # Change stiffness value to give a 10mm static compression for a 1 kN load
+    # with a quadratic force model
     par_map['kc'] = 1e7
 
 # If there is calibration pose data, update the constants based on that
@@ -199,13 +199,14 @@ def obj(prob, free, obj_show=False):
     """
     Objective function::
 
-        J = WTOR*sum(joint_torque**2)
-          + WANG*sum(joint_angle_error**2)
-          + WREG*sum((dx/dt)**2)
-          + WMAR*sum(marker_error**2)
+        J = WTOR*mean(joint_torque**2)
+          + WANG*mean(joint_angle_error**2)
+          + WREG*mean((dx/dt)**2)
+          + WMAR*mean(marker_error**2)
 
-    The final node is excluded in angle and marker tracking, it is the first
-    node of the next cycle.
+    The final node is excluded from all means. Due to symmetry and
+    periodicity constraints, it is the mirror image of the first node,
+    and we don't want to include it twice.
 
     """
     # minimize mean joint torque
