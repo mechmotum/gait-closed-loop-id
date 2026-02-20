@@ -53,8 +53,8 @@ STIFFNESS_EXP = 2  # exponent of the contact stiffness force
 SUBJECT_MASS = 70.0  # kg of subject from trial 20, TODO: extract from metadata
 WANG = 100   # weight of mean squared angle tracking error (in rad)
 WMAR = 0     # weight of mean squared marker tracking error (in meters)
-WREG = 1e-8  # weight of mean squared time derivatives
-WTOR = 100   # weight of the mean squared torque (in kNm) objective
+WREG = 1e-6  # weight of mean squared time derivatives
+WTOR = 1000   # weight of the mean squared torque (in kNm) objective
 USE_WINTER_DATA = True  # if we want to track Winter's gait data
 
 # Load measurement data from Moore et al. 2015 or
@@ -137,8 +137,8 @@ bounds = {
     qax: (-1.0, 1.0),
     qay: (0.5, 1.5),
     qa: np.deg2rad((-60.0, 60.0)),
-    uax: (0.0, 10.0),
-    uay: (-10.0, 10.0),
+    uax: (-1.0, 1.0),
+    uay: (-1.0, 1.0),
 }
 # hip
 bounds.update({k: (-np.deg2rad(60.0), np.deg2rad(60.0))
@@ -188,12 +188,20 @@ instance_constraints = (
     Tg.func(0*h) - Td.func(duration),
 )
 
+# When tracking markers, simulated marker trajectories must be periodic too
 if WMAR != 0:
     for i, marker_sym in enumerate(marker_coords[:-2]):
         con = (marker_sym.func(0*h) - marker_coords[i + 2].func(duration),
                marker_coords[i + 2].func(0*h) - marker_sym.func(duration))
         instance_constraints += con
-
+        
+# When not tracking markers, the dynamics and cost function are invariant
+# to a constant horizontal translation of the trajectory, so there is no
+# unique solution. We therefore require qax(t=0) = 0
+# (it would be better to use the bounds to require free[0]=zero, but I don't
+# know how to do this in opty, I only see bounds on the whole trajectory)
+if WMAR == 0:
+    instance_constraints += (qax.func(0*h),)
 
 def obj(prob, free, obj_show=False):
     """
