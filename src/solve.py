@@ -46,10 +46,11 @@ logging.basicConfig(
 EOM_SCALE = 10.0  # scaling factor for eom
 GAIT_CYCLE_NUM = 45  # gait cycle to select from measurment data
 GENFORCE_SCALE = 0.001  # convert to kN and kNm
+LINEAR_SOLVER = 'mumps'  # passed to IPOPT mumps, spral, ma57, ma77, ma86, ma97
 MAKE_ANIMATION = True
 NUM_NODES = 50  # number of time nodes for the half period
 REGULARIZE = True  # smooth trajectories in objective
-SEED = True  # set to integer value for specific seed value
+SEED = True  # set to integer value for specific seed value, True(=1), or False
 STIFFNESS_EXP = 2  # exponent of the contact stiffness force
 SUBJECT_MASS = 70.0  # kg of subject from trial 20, TODO: extract from metadata
 TRACK_ANGLES = True  # track joint angles
@@ -306,9 +307,11 @@ prob = Problem(
     tmp_dir='gait_codegen',  # enables binary caching
 )
 
-#prob.add_option('hsllib', 'libcoinhsl.so')
-#prob.add_option('linear_solver', 'ma57')
-#prob.add_option('ma57_pivot_order', 2)
+if LINEAR_SOLVER.startswith('ma'):
+    prob.add_option('hsllib', 'libcoinhsl.so')
+    prob.add_option('linear_solver', LINEAR_SOLVER)
+    if LINEAR_SOLVER == 'ma57':
+        prob.add_option('ma57_pivot_order', 2)
 
 prob.add_option('max_iter', 3000)
 prob.add_option('tol', 1e-3)
