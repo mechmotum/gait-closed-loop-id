@@ -56,6 +56,17 @@ def fill_free(problem, free, values, *variables, slice=(None, None),
         free[idxs] = values
 
 
+def extract_values_diff(problem, free, *variables):
+    N = problem.collocator.num_collocation_nodes
+    num_vars = len(variables)
+    # shape(num_vars*N, )
+    vals = problem.extract_values(free, *variables)
+    # shape(num_vars, N - 1)
+    vals_diff = np.diff(vals.reshape(num_vars, N))
+    # shape(num_vars*(N - 1), )
+    return vals_diff.flatten()
+
+
 def extract_values(problem, free, *variables, slice=(None, None)):
     """Returns the numerical values of the free variables.
 

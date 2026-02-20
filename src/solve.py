@@ -22,15 +22,17 @@ from utils import (
     CALIBDATAPATH,
     DATADIR,
     GAITDATAPATH,
+    SymbolDict,
     animate,
     body_segment_parameters_from_calibration,
     extract_values,
+    extract_values_diff,
     fill_free,
     generate_marker_equations,
     load_sample_data,
     load_winter_data,
     plot_joint_comparison,
-    plot_marker_comparison, SymbolDict,
+    plot_marker_comparison,
 )
 
 logger = logging.getLogger(__name__)
@@ -44,17 +46,18 @@ logging.basicConfig(
 EOM_SCALE = 10.0  # scaling factor for eom
 GAIT_CYCLE_NUM = 45  # gait cycle to select from measurment data
 GENFORCE_SCALE = 0.001  # convert to kN and kNm
+LINEAR_SOLVER = 'mumps'  # passed to IPOPT mumps, spral, ma57, ma77, ma86, ma97
 MAKE_ANIMATION = True
 NUM_NODES = 50  # number of time nodes for the half period
 REGULARIZE = True  # smooth trajectories in objective
-SEED = True  # set to integer value for specific seed value
+SEED = True  # set to integer value for specific seed value, True(=1), or False
 STIFFNESS_EXP = 2  # exponent of the contact stiffness force
 SUBJECT_MASS = 70.0  # kg of subject from trial 20, TODO: extract from metadata
 TRACK_ANGLES = True  # track joint angles
 TRACK_MARKERS = True  # track markers
 WANG = 100  # weight of mean squared angle tracking error (in rad)
 WMAR = 100  # weight of mean squared marker tracking error (in meters)
-WREG = 0.0000001  # weight of mean squared time derivatives
+WREG = 1e-8  # weight of mean squared time derivatives
 WTOR = 100  # weight of the mean squared torque (in kNm) objective
 
 if not (TRACK_ANGLES or TRACK_MARKERS):
@@ -107,6 +110,7 @@ if TRACK_MARKERS:
 qax, qay, qa, qb, qc, qd, qe, qf, qg = syms.coordinates
 uax, uay, ua, ub, uc, ud, ue, uf, ug = syms.speeds
 Tb, Tc, Td, Te, Tf, Tg, v = syms.specifieds
+reg_syms = syms.states + syms.joint_torques
 num_states = len(syms.states)
 
 # The constants are loaded from a file of realistic geometry, mass, inertia,
@@ -224,17 +228,10 @@ def obj(prob, free, obj_show=False):
         f_track = WANG*np.sum((ang_vals - ang_data)**2)/len(ang_vals)
         f_tot += f_track
 
+    # smooth all regularization trajectories
     if REGULARIZE:
-        # regularization cost is the mean of squared time derivatives of all
-        # state variables (coordinates & speeds)
-        # 1 to N
-        reglead_vals = extract_values(
-            prob, free, *(syms.states + syms.joint_torques), slice=(1, None))
-        # 0 to N - 1
-        reglag_vals = extract_values(
-            prob, free, *(syms.states + syms.joint_torques), slice=(None, -1))
-        f_reg = WREG*np.sum((reglead_vals -
-                             reglag_vals)**2)/h**2/len(reglead_vals)
+        diff = extract_values_diff(prob, free, *reg_syms)
+        f_reg = WREG*np.sum(diff**2)/h**2/len(diff)
         f_tot += f_reg
 
     # minimize mean marker tracking error
@@ -272,19 +269,13 @@ def obj_grad(prob, free):
                   *syms.joint_angles, slice=(0, -1))
 
     if REGULARIZE:
-        # 1 to N
-        reglead_vals = extract_values(
-            prob, free, *(syms.states + syms.joint_torques), slice=(1, None))
-        # 0 to N - 1
-        reglag_vals = extract_values(
-            prob, free, *(syms.states + syms.joint_torques), slice=(None, -1))
-        diff = WREG*2.0*(reglead_vals - reglag_vals)/h**2/len(reglead_vals)
-        fill_free(prob, grad, -diff, *(syms.states + syms.joint_torques),
-                  slice=(None, -1))
-        new = extract_values(prob, grad, *(syms.states + syms.joint_torques),
-                             slice=(1, None))
-        fill_free(prob, grad, new + diff, *(syms.states + syms.joint_torques),
-                  slice=(1, None))
+        # NOTE : The regularization should be added on top of the tor_vals and
+        # ang_vals.
+        diff = extract_values_diff(prob, free, *reg_syms)
+        reg_grad = WREG*2.0*diff/h**2/len(diff)
+        # NOTE : Add twice with a shift for correct gradient.
+        fill_free(prob, grad, -reg_grad, *reg_syms, slice=(None, -1), add=True)
+        fill_free(prob, grad, reg_grad, *reg_syms, slice=(1, None), add=True)
 
     if TRACK_MARKERS:
         mar_vals = extract_values(prob, free, *marker_coords, slice=(0, -1))
@@ -315,10 +306,18 @@ prob = Problem(
     time_symbol=time_symbol,
     tmp_dir='gait_codegen',  # enables binary caching
 )
+
+if LINEAR_SOLVER.startswith('ma'):
+    prob.add_option('hsllib', 'libcoinhsl.so')
+    prob.add_option('linear_solver', LINEAR_SOLVER)
+    if LINEAR_SOLVER == 'ma57':
+        prob.add_option('ma57_pivot_order', 2)
+
 prob.add_option('max_iter', 3000)
 prob.add_option('tol', 1e-3)
 prob.add_option('constr_viol_tol', 1e-4)
 prob.add_option('print_level', 0)
+#prob.add_option('derivative_test', 'first-order')
 
 # make an initial guess from the standing solution
 logger.info('Making an initial guess.')
