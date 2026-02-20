@@ -60,9 +60,6 @@ WMAR = 100  # weight of mean squared marker tracking error (in meters)
 WREG = 1e-8  # weight of mean squared time derivatives
 WTOR = 100  # weight of the mean squared torque (in kNm) objective
 
-if not (TRACK_ANGLES or TRACK_MARKERS):
-    raise ValueError('You must track joint angle or markers or both.')
-
 # Load measurement data from Moore et al. 2015 if present, else load the
 # normative Winter's data unless tracking markers is requested.
 if os.path.exists(GAITDATAPATH):
