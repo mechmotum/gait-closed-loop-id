@@ -47,16 +47,16 @@ logging.basicConfig(
 EOM_SCALE = 10.0  # scaling factor for eom
 GAIT_CYCLE_NUM = 45  # gait cycle to select from measurment data
 GENFORCE_SCALE = 0.001  # convert to kN and kNm
-LINEAR_SOLVER = 'mumps'  # passed to IPOPT mumps, spral, ma57, ma77, ma86, ma97
+LINEAR_SOLVER = 'ma57'  # passed to IPOPT mumps, spral, ma57, ma77, ma86, ma97
 MAKE_ANIMATION = True
 NUM_NODES = 50  # number of time nodes for the half period
-SEED = True  # set to integer value for specific seed value, True(=1), or False
+SEED = False  # set to integer value for specific seed value, True(=1), or False
 STIFFNESS_EXP = 2  # exponent of the contact stiffness force
 SUBJECT_MASS = 70.0  # kg of subject from trial 20, TODO: extract from metadata
-USE_WINTER_DATA = True  # if we want to track Winter's gait data
+USE_WINTER_DATA = False  # if we want to track Winter's gait data
 # Remove parts of the objective by setting to integer 0.
-WANG = 100.0  # weight of mean squared angle tracking error (in rad)
-WMAR = 0  # weight of mean squared marker tracking error (in meters)
+WANG = 0  # weight of mean squared angle tracking error (in rad)
+WMAR = 100.0  # weight of mean squared marker tracking error (in meters)
 WREG = 1e-6  # weight of mean squared time derivatives
 WTOR = 1000.0  # weight of the mean squared torque (in kNm) objective
 
@@ -194,8 +194,12 @@ instance_constraints = (
 if WMAR != 0:
     for (lx, ly, rx, ry) in itertools.zip_longest(*[iter(marker_coords)]*4):
         # group per marker: (ank_lx(t), ank_ly(t), ank_rx(t), ank_ry(t))
-        con = (lx.func(0*h) - rx.func(duration),
-               ly.func(0*h) - ry.func(duration))
+        con = (
+            lx.func(0*h) - rx.func(duration),
+            rx.func(0*h) - lx.func(duration),
+            ly.func(0*h) - ry.func(duration),
+            ry.func(0*h) - ly.func(duration),
+        )
         instance_constraints += con
 
 # When not tracking markers, the dynamics and cost function are invariant
