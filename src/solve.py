@@ -47,7 +47,7 @@ logging.basicConfig(
 EOM_SCALE = 10.0  # scaling factor for eom
 GAIT_CYCLE_NUM = 45  # gait cycle to select from measurment data
 GENFORCE_SCALE = 0.001  # convert to kN and kNm
-LINEAR_SOLVER = 'ma57'  # passed to IPOPT mumps, spral, ma57, ma77, ma86, ma97
+LINEAR_SOLVER = 'mumps'  # passed to IPOPT mumps, spral, ma57, ma77, ma86, ma97
 MAKE_ANIMATION = True
 NUM_NODES = 50  # number of time nodes for the half period
 SEED = False  # set to integer value for specific seed value, True(=1), or False
