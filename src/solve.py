@@ -50,12 +50,12 @@ GENFORCE_SCALE = 0.001  # convert to kN and kNm
 LINEAR_SOLVER = 'mumps'  # passed to IPOPT mumps, spral, ma57, ma77, ma86, ma97
 MAKE_ANIMATION = True
 NUM_NODES = 50  # number of time nodes for the half period
-SEED = False  # set to integer value for specific seed value, True(=1), or False
+SEED = True  # set to integer value for specific seed value, True(=1), or False
 STIFFNESS_EXP = 2  # exponent of the contact stiffness force
 SUBJECT_MASS = 70.0  # kg of subject from trial 20, TODO: extract from metadata
 USE_WINTER_DATA = False  # if we want to track Winter's gait data
 # Remove parts of the objective by setting to integer 0.
-WANG = 0  # weight of mean squared angle tracking error (in rad)
+WANG = 100.0  # weight of mean squared angle tracking error (in rad)
 WMAR = 100.0  # weight of mean squared marker tracking error (in meters)
 WREG = 1e-6  # weight of mean squared time derivatives
 WTOR = 1000.0  # weight of the mean squared torque (in kNm) objective
