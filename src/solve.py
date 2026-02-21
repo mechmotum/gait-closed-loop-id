@@ -6,9 +6,10 @@ The resulting state trajectory will be used as a reference trajectory for a
 known feedback controller to generate synthetic data for testing our controller
 identification method.
 """
-import os
 from datetime import datetime
 import logging
+import os
+import platform
 
 from opty import Problem
 from pygait2d import simulate
@@ -51,11 +52,12 @@ NUM_NODES = 50  # number of time nodes for the half period
 SEED = True  # set to integer value for specific seed value, True(=1), or False
 STIFFNESS_EXP = 2  # exponent of the contact stiffness force
 SUBJECT_MASS = 70.0  # kg of subject from trial 20, TODO: extract from metadata
-WANG = 100   # weight of mean squared angle tracking error (in rad)
-WMAR = 0     # weight of mean squared marker tracking error (in meters)
-WREG = 1e-6  # weight of mean squared time derivatives
-WTOR = 1000   # weight of the mean squared torque (in kNm) objective
 USE_WINTER_DATA = True  # if we want to track Winter's gait data
+# Remove parts of the objective by setting to integer 0.
+WANG = 100.0  # weight of mean squared angle tracking error (in rad)
+WMAR = 0  # weight of mean squared marker tracking error (in meters)
+WREG = 1e-6  # weight of mean squared time derivatives
+WTOR = 1000.0  # weight of the mean squared torque (in kNm) objective
 
 # Load measurement data from Moore et al. 2015 or
 # normative Winter's data unless tracking markers is requested.
@@ -67,7 +69,7 @@ else:
     # load a gait cycle from our data (trial 20)
     (duration, walking_speed, num_angles, ang_data,
      marker_df, kinetic_df) = load_sample_data(
-         NUM_NODES, gait_cycle_number=GAIT_CYCLE_NUM)  
+         NUM_NODES, gait_cycle_number=GAIT_CYCLE_NUM)
 
 # Define the fixed time step in the simulation
 h = duration/(NUM_NODES - 1)
@@ -87,8 +89,7 @@ for i in range(9):
 
 # Markers are in units meters, so no scaling applied
 if WMAR != 0:
-    marker_coords, marker_eqs, marker_labels = generate_marker_equations(
-        syms)
+    marker_coords, marker_eqs, marker_labels = generate_marker_equations(syms)
     eom = eom.col_join(sm.Matrix(marker_eqs))
     mar_data = marker_df[marker_labels].values.T.flatten()
 
@@ -112,13 +113,12 @@ par_map = SymbolDict(simulate.load_constants(
     syms.constants, os.path.join(DATADIR, 'example_constants.yml')))
 if STIFFNESS_EXP == 2:
     # Change stiffness value to give a 10mm static compression for a 1 kN load
-    # with a quadratic force model
+    # with a quadratic force model.
     par_map['kc'] = 1e7
 
 # If there is calibration pose data, update the constants based on that
 # subject's size.
 if (not USE_WINTER_DATA) and os.path.exists(CALIBDATAPATH):
-    # TODO : subject mass (70) should be loaded from meta data files.
     scaled_par = body_segment_parameters_from_calibration(CALIBDATAPATH,
                                                           SUBJECT_MASS)
     for c in syms.constants:
@@ -194,7 +194,7 @@ if WMAR != 0:
         con = (marker_sym.func(0*h) - marker_coords[i + 2].func(duration),
                marker_coords[i + 2].func(0*h) - marker_sym.func(duration))
         instance_constraints += con
-        
+
 # When not tracking markers, the dynamics and cost function are invariant
 # to a constant horizontal translation of the trajectory, so there is no
 # unique solution. We therefore require qax(t=0) = 0
@@ -202,6 +202,7 @@ if WMAR != 0:
 # know how to do this in opty, I only see bounds on the whole trajectory)
 if WMAR == 0:
     instance_constraints += (qax.func(0*h),)
+
 
 def obj(prob, free, obj_show=False):
     """
@@ -310,7 +311,9 @@ prob = Problem(
 )
 
 if LINEAR_SOLVER.startswith('ma'):
-    prob.add_option('hsllib', 'libcoinhsl.so')
+    # TODO : Load correct shared lib on Windows/Darwin
+    if platform.system() == 'Linux':
+        prob.add_option('hsllib', 'libcoinhsl.so')
     prob.add_option('linear_solver', LINEAR_SOLVER)
     if LINEAR_SOLVER == 'ma57':
         prob.add_option('ma57_pivot_order', 2)

@@ -252,6 +252,24 @@ def animate(symbolics, xs, rs, h, speed, times, par_map, stiffness_exp):
     return ani
 
 
+def get_sym_by_name(iterable, *sym_strs):
+    """Returns SymPy Symbols or Function()(t)s that matches the provided
+    string."""
+    syms = []
+    for sym_str in sym_strs:
+        for s in iterable:
+            if sym_str == s.name:
+                syms.append(s)
+                break
+    if len(syms) == len(sym_strs):
+        if len(syms) == 1:
+            return syms[0]
+        else:
+            return tuple(syms)
+    else:
+        raise ValueError('One or more sym_strs not in iterable.')
+
+
 def generate_marker_equations(symbolics):
     """Returns the equations for the x and y coordinates of markers to track.
 
@@ -275,24 +293,28 @@ def generate_marker_equations(symbolics):
 
     O, N = symbolics.origin, symbolics.inertial_frame
     trunk, rthigh, rshank, rfoot, lthigh, lshank, lfoot = symbolics.segments
+    fyd, fyg = get_sym_by_name(symbolics.constants, 'fyd', 'fyg')
 
-    # I think the code will only work if these are uncommented in pairs.
-    # The heel and toe markers are above the ground by the distance fyd, fyg.
+    # NOTE : Code will only work if these are uncommented in L/R pairs.
+    # The heel and toe markers are above the ground by the distance 0.56*fyd,
+    # 0.56*fyg. The 0.56 = HEE.PosY/LM.PosY in the calibration pose and is
+    # estimate from the subject in trial 20 with these numbers:
+    # RHEE.PosY.mean() = 0.051276430563978154
+    # RLM.PosY.mean() = 0.09135660837737156
+    # TODO : Make the heel/toe marker height a variable and store it in the
+    # subject specific calibration.
+    p = 0.56
     points = {
         'ank_l': lshank.joint,  # left ankle
         'ank_r': rshank.joint,  # right ankle
-        #'hel_l': lfoot.heel.locatenew(
-            #'hee_l', -symbolics.constants[-5]*lfoot.reference_frame.y),
-        #'hel_r': rfoot.heel.locatenew(
-            #'hee_r', -symbolics.constants[-5]*rfoot.reference_frame.y),
+        #'hel_l': lfoot.heel.locatenew('hee_l', -p*fyg*lfoot.reference_frame.y),
+        #'hel_r': rfoot.heel.locatenew('hee_r', -p*fyd*rfoot.reference_frame.y),
         #'hip_l': trunk.joint,  # hip
         #'hip_r': trunk.joint,  # hip
         #'kne_l': lthigh.joint,  # left knee
         #'kne_r': rthigh.joint,  # right knee
-        #'toe_l': lfoot.toe.locatenew(
-            #'toe_l', -symbolics.constants[-5]*lfoot.reference_frame.y),
-        #'toe_r': rfoot.toe.locatenew(
-            #'toe_r', -symbolics.constants[-5]*rfoot.reference_frame.y),
+        #'toe_l': lfoot.toe.locatenew('toe_l', -p*fyg*lfoot.reference_frame.y),
+        #'toe_r': rfoot.toe.locatenew('toe_r', -p*fyd*rfoot.reference_frame.y),
     }
 
     point_data_map = {
