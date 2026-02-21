@@ -6,10 +6,11 @@ The resulting state trajectory will be used as a reference trajectory for a
 known feedback controller to generate synthetic data for testing our controller
 identification method.
 """
-import os
 from datetime import datetime
 import itertools
 import logging
+import os
+import platform
 
 from opty import Problem
 from pygait2d import simulate
@@ -22,16 +23,17 @@ import sympy as sm
 from utils import (
     CALIBDATAPATH,
     DATADIR,
-    GAITDATAPATH,
+    SymbolDict,
     animate,
     body_segment_parameters_from_calibration,
     extract_values,
+    extract_values_diff,
     fill_free,
     generate_marker_equations,
     load_sample_data,
     load_winter_data,
     plot_joint_comparison,
-    plot_marker_comparison, SymbolDict,
+    plot_marker_comparison,
 )
 
 logger = logging.getLogger(__name__)
@@ -45,33 +47,30 @@ logging.basicConfig(
 EOM_SCALE = 10.0  # scaling factor for eom
 GAIT_CYCLE_NUM = 45  # gait cycle to select from measurment data
 GENFORCE_SCALE = 0.001  # convert to kN and kNm
+LINEAR_SOLVER = 'mumps'  # passed to IPOPT mumps, spral, ma57, ma77, ma86, ma97
 MAKE_ANIMATION = True
 NUM_NODES = 50  # number of time nodes for the half period
-REGULARIZE = True  # smooth trajectories in objective
-SEED = True  # set to integer value for specific seed value
+SEED = True  # set to integer value for specific seed value, True(=1), or False
 STIFFNESS_EXP = 2  # exponent of the contact stiffness force
-TRACK_ANGLES = True  # track joint angles
-TRACK_MARKERS = True  # track markers
-WANG = 100  # weight of mean squared angle tracking error (in rad)
-WMAR = 100  # weight of mean squared marker tracking error (in meters)
-WREG = 0.0000001  # weight of mean squared time derivatives
-WTOR = 100  # weight of the mean squared torque (in kNm) objective
+SUBJECT_MASS = 70.0  # kg of subject from trial 20, TODO: extract from metadata
+USE_WINTER_DATA = True  # if we want to track Winter's gait data
+# Remove parts of the objective by setting to integer 0.
+WANG = 100.0  # weight of mean squared angle tracking error (in rad)
+WMAR = 0  # weight of mean squared marker tracking error (in meters)
+WREG = 1e-6  # weight of mean squared time derivatives
+WTOR = 1000.0  # weight of the mean squared torque (in kNm) objective
 
-if not (TRACK_ANGLES or TRACK_MARKERS):
-    raise ValueError('You must track joint angle or markers or both.')
-
-# Load measurement data from Moore et al. 2015 if present, else load the
+# Load measurement data from Moore et al. 2015 or
 # normative Winter's data unless tracking markers is requested.
-if os.path.exists(GAITDATAPATH):
+if USE_WINTER_DATA:
+    if WMAR != 0:
+        raise ValueError("Winter's data does not have markers to track.")
+    duration, walking_speed, num_angles, ang_data = load_winter_data(NUM_NODES)
+else:
     # load a gait cycle from our data (trial 20)
     (duration, walking_speed, num_angles, ang_data,
      marker_df, kinetic_df) = load_sample_data(
          NUM_NODES, gait_cycle_number=GAIT_CYCLE_NUM)
-elif not TRACK_MARKERS:
-    # load normal gait data from Winter's book
-    duration, walking_speed, num_angles, ang_data = load_winter_data(NUM_NODES)
-else:
-    raise ValueError("Winter's data does not have markers to track.")
 
 # Define the fixed time step in the simulation
 h = duration/(NUM_NODES - 1)
@@ -90,9 +89,8 @@ for i in range(9):
     eom[9+i] = GENFORCE_SCALE * eom[9+i]
 
 # Markers are in units meters, so no scaling applied
-if TRACK_MARKERS:
-    marker_coords, marker_eqs, marker_labels = generate_marker_equations(
-        syms)
+if WMAR != 0:
+    marker_coords, marker_eqs, marker_labels = generate_marker_equations(syms)
     eom = eom.col_join(sm.Matrix(marker_eqs))
     mar_data = marker_df[marker_labels].values.T.flatten()
 
@@ -107,6 +105,7 @@ if TRACK_MARKERS:
 qax, qay, qa, qb, qc, qd, qe, qf, qg = syms.coordinates
 uax, uay, ua, ub, uc, ud, ue, uf, ug = syms.speeds
 Tb, Tc, Td, Te, Tf, Tg, v = syms.specifieds
+reg_syms = syms.states + syms.joint_torques
 num_states = len(syms.states)
 
 # The constants are loaded from a file of realistic geometry, mass, inertia,
@@ -114,15 +113,15 @@ num_states = len(syms.states)
 par_map = SymbolDict(simulate.load_constants(
     syms.constants, os.path.join(DATADIR, 'example_constants.yml')))
 if STIFFNESS_EXP == 2:
-    # Change stiffness value to give a 10mm static compression for a quadratic
-    # force.
+    # Change stiffness value to give a 10mm static compression for a 1 kN load
+    # with a quadratic force model.
     par_map['kc'] = 1e7
 
 # If there is calibration pose data, update the constants based on that
 # subject's size.
-if TRACK_MARKERS and os.path.exists(CALIBDATAPATH):
-    # TODO : subject mass (70) should be loaded from meta data files.
-    scaled_par = body_segment_parameters_from_calibration(CALIBDATAPATH, 70.0)
+if (not USE_WINTER_DATA) and os.path.exists(CALIBDATAPATH):
+    scaled_par = body_segment_parameters_from_calibration(CALIBDATAPATH,
+                                                          SUBJECT_MASS)
     for c in syms.constants:
         try:
             par_map[c] = scaled_par[c.name]
@@ -139,8 +138,8 @@ bounds = {
     qax: (-1.0, 1.0),
     qay: (0.5, 1.5),
     qa: np.deg2rad((-60.0, 60.0)),
-    uax: (0.0, 10.0),
-    uay: (-10.0, 10.0),
+    uax: (-1.0, 1.0),
+    uay: (-1.0, 1.0),
 }
 # hip
 bounds.update({k: (-np.deg2rad(60.0), np.deg2rad(60.0))
@@ -212,13 +211,14 @@ def obj(prob, free, obj_show=False):
     """
     Objective function::
 
-        J = WTOR*sum(joint_torque**2)
-          + WANG*sum(joint_angle_error**2)
-          + WREG*sum((dx/dt)**2)
-          + WMAR*sum(marker_error**2)
+        J = WTOR*mean(joint_torque**2)
+          + WANG*mean(joint_angle_error**2)
+          + WREG*mean((dx/dt)**2)
+          + WMAR*mean(marker_error**2)
 
-    The final node is excluded in angle and marker tracking, it is the first
-    node of the next cycle.
+    The final node is excluded from all means. Due to symmetry and
+    periodicity constraints, it is the mirror image of the first node,
+    and we don't want to include it twice.
 
     """
     # minimize mean joint torque
@@ -227,28 +227,21 @@ def obj(prob, free, obj_show=False):
 
     f_tot = f_tor
 
-    if TRACK_ANGLES:
+    if WANG != 0:
         # minimize mean angle tracking error
         ang_vals = extract_values(prob, free, *syms.joint_angles,
                                   slice=(0, -1))
         f_track = WANG*np.sum((ang_vals - ang_data)**2)/len(ang_vals)
         f_tot += f_track
 
-    if REGULARIZE:
-        # regularization cost is the mean of squared time derivatives of all
-        # state variables (coordinates & speeds)
-        # 1 to N
-        reglead_vals = extract_values(
-            prob, free, *(syms.states + syms.joint_torques), slice=(1, None))
-        # 0 to N - 1
-        reglag_vals = extract_values(
-            prob, free, *(syms.states + syms.joint_torques), slice=(None, -1))
-        f_reg = WREG*np.sum((reglead_vals -
-                             reglag_vals)**2)/h**2/len(reglead_vals)
+    # smooth all regularization trajectories
+    if WREG != 0:
+        diff = extract_values_diff(prob, free, *reg_syms)
+        f_reg = WREG*np.sum(diff**2)/h**2/len(diff)
         f_tot += f_reg
 
     # minimize mean marker tracking error
-    if TRACK_MARKERS:
+    if WMAR != 0:
         # vals -> shape(num_markers*(num_nodes - 1), 1)
         mar_vals = extract_values(prob, free, *marker_coords, slice=(0, -1))
         f_mar = WMAR*np.sum((mar_vals - mar_data)**2)/len(mar_vals)
@@ -256,11 +249,11 @@ def obj(prob, free, obj_show=False):
 
     if obj_show:
         msg = (f"   obj: {f_tot:.3f} = {f_tor:.3f}(torque)")
-        if REGULARIZE:
+        if WREG != 0:
             msg += f" + {f_reg:.3f}(reg)"
-        if TRACK_ANGLES:
+        if WANG != 0:
             msg += f" + {f_track:.3f}(angle)"
-        if TRACK_MARKERS:
+        if WMAR != 0:
             msg += f" + {f_mar:.3f}(marker)"
         print(msg)
 
@@ -274,29 +267,23 @@ def obj_grad(prob, free):
     tor_vals = extract_values(prob, free, *syms.joint_torques)
     prob.fill_free(grad, 2e-6*WTOR*tor_vals/len(tor_vals), *syms.joint_torques)
 
-    if TRACK_ANGLES:
+    if WANG != 0:
         ang_vals = extract_values(prob, free, *syms.joint_angles,
                                   slice=(0, -1))
         fill_free(prob, grad,
                   2.0*WANG*(ang_vals - ang_data)/len(ang_vals),
                   *syms.joint_angles, slice=(0, -1))
 
-    if REGULARIZE:
-        # 1 to N
-        reglead_vals = extract_values(
-            prob, free, *(syms.states + syms.joint_torques), slice=(1, None))
-        # 0 to N - 1
-        reglag_vals = extract_values(
-            prob, free, *(syms.states + syms.joint_torques), slice=(None, -1))
-        diff = WREG*2.0*(reglead_vals - reglag_vals)/h**2/len(reglead_vals)
-        fill_free(prob, grad, -diff, *(syms.states + syms.joint_torques),
-                  slice=(None, -1))
-        new = extract_values(prob, grad, *(syms.states + syms.joint_torques),
-                             slice=(1, None))
-        fill_free(prob, grad, new + diff, *(syms.states + syms.joint_torques),
-                  slice=(1, None))
+    if WREG != 0:
+        # NOTE : The regularization should be added on top of the tor_vals and
+        # ang_vals.
+        diff = extract_values_diff(prob, free, *reg_syms)
+        reg_grad = WREG*2.0*diff/h**2/len(diff)
+        # NOTE : Add twice with a shift for correct gradient.
+        fill_free(prob, grad, -reg_grad, *reg_syms, slice=(None, -1), add=True)
+        fill_free(prob, grad, reg_grad, *reg_syms, slice=(1, None), add=True)
 
-    if TRACK_MARKERS:
+    if WMAR != 0:
         mar_vals = extract_values(prob, free, *marker_coords, slice=(0, -1))
         fill_free(prob, grad,
                   2.0*WMAR*(mar_vals - mar_data)/len(mar_vals),
@@ -325,10 +312,20 @@ prob = Problem(
     time_symbol=time_symbol,
     tmp_dir='gait_codegen',  # enables binary caching
 )
+
+if LINEAR_SOLVER.startswith('ma'):
+    # TODO : Load correct shared lib on Windows/Darwin
+    if platform.system() == 'Linux':
+        prob.add_option('hsllib', 'libcoinhsl.so')
+    prob.add_option('linear_solver', LINEAR_SOLVER)
+    if LINEAR_SOLVER == 'ma57':
+        prob.add_option('ma57_pivot_order', 2)
+
 prob.add_option('max_iter', 3000)
 prob.add_option('tol', 1e-3)
 prob.add_option('constr_viol_tol', 1e-4)
 prob.add_option('print_level', 0)
+#prob.add_option('derivative_test', 'first-order')
 
 # make an initial guess from the standing solution
 logger.info('Making an initial guess.')
@@ -342,7 +339,7 @@ standing_state = standing_sol[0:num_states].reshape(-1, 1)  # coordinates and sp
 state_traj = np.tile(standing_state, (1, NUM_NODES))  # make NUM_NODES copies
 tor_traj = np.zeros((num_angles, NUM_NODES))  # intialize torques to zero
 initial_guess = np.concatenate((state_traj, tor_traj))  # complete trajectory
-if TRACK_MARKERS:
+if WMAR != 0:
     # TODO : The marker positions could be calculated from the generalized
     # coordinates.
     mar_traj = np.zeros((len(marker_coords), NUM_NODES))
@@ -401,9 +398,18 @@ dat[:, 1] = -dat[:, 1]
 tor[:, [0, 2]] = -tor[:, [0, 2]]
 
 # Generate plots and animations
-plot_joint_comparison(t, ang, tor, dat)
+if WMAR != 0:
+    # TODO : Extract the measured joint torques from the Winter's data also.
+    tor_meas = kinetic_df.values
+    tor_meas = np.vstack((tor_meas[:, 0:3],
+                          tor_meas[:, 3:6],
+                          tor_meas[1, 0:3]))
+    tor_meas[:, 1] = -tor_meas[:, 1]
+    plot_joint_comparison(t, ang, tor, dat, torques_meas=tor_meas)
+else:
+    plot_joint_comparison(t, ang, tor, dat)
 
-if TRACK_MARKERS:
+if WMAR != 0:
     plot_marker_comparison(marker_coords, marker_labels, marker_df, prob,
                            solution)
 

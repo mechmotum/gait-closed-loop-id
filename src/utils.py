@@ -16,7 +16,8 @@ GAITDATAPATH = os.path.join(DATADIR, GAITFILE)
 CALIBDATAPATH = os.path.join(DATADIR, CALIBFILE)
 
 
-def fill_free(problem, free, values, *variables, slice=(None, None)):
+def fill_free(problem, free, values, *variables, slice=(None, None),
+              add=False):
     """Replaces the values in a vector shaped the same as the free optimization
     vector corresponding to the variable names.
 
@@ -37,6 +38,9 @@ def fill_free(problem, free, values, *variables, slice=(None, None)):
         slices of time from all variables. If you want state x but only want to
         return the first half of the simulation you can do ``slice=(None,
         num_nodes//2)`` which translates to ``x[None:num_nodes//2]``.
+    add : boolean, optional
+        If true the values will be added to the existing values in free instead
+        of being overwritten.
 
     """
     d = problem._extraction_indices
@@ -46,7 +50,21 @@ def fill_free(problem, free, values, *variables, slice=(None, None)):
             idxs += d[var][slice[0]:slice[1]]
         except KeyError:
             raise ValueError(f'{var} not an unknown in this problem.')
-    free[idxs] = values
+    if add:
+        free[idxs] += values
+    else:
+        free[idxs] = values
+
+
+def extract_values_diff(problem, free, *variables):
+    N = problem.collocator.num_collocation_nodes
+    num_vars = len(variables)
+    # shape(num_vars*N, )
+    vals = problem.extract_values(free, *variables)
+    # shape(num_vars, N - 1)
+    vals_diff = np.diff(vals.reshape(num_vars, N))
+    # shape(num_vars*(N - 1), )
+    return vals_diff.flatten()
 
 
 def extract_values(problem, free, *variables, slice=(None, None)):
@@ -234,6 +252,24 @@ def animate(symbolics, xs, rs, h, speed, times, par_map, stiffness_exp):
     return ani
 
 
+def get_sym_by_name(iterable, *sym_strs):
+    """Returns SymPy Symbols or Function()(t)s that matches the provided
+    string."""
+    syms = []
+    for sym_str in sym_strs:
+        for s in iterable:
+            if sym_str == s.name:
+                syms.append(s)
+                break
+    if len(syms) == len(sym_strs):
+        if len(syms) == 1:
+            return syms[0]
+        else:
+            return tuple(syms)
+    else:
+        raise ValueError('One or more sym_strs not in iterable.')
+
+
 def generate_marker_equations(symbolics):
     """Returns the equations for the x and y coordinates of markers to track.
 
@@ -257,10 +293,17 @@ def generate_marker_equations(symbolics):
 
     O, N = symbolics.origin, symbolics.inertial_frame
     trunk, rthigh, rshank, rfoot, lthigh, lshank, lfoot = symbolics.segments
+    fyd, fyg = get_sym_by_name(symbolics.constants, 'fyd', 'fyg')
 
-    # TODO : Only tracking ankle, need to scale model before tracking multiple
-    # markers works.
-    # I think the code will only work if these are uncommented in pairs.
+    # NOTE : Code will only work if these are uncommented in L/R pairs.
+    # The heel and toe markers are above the ground by the distance 0.56*fyd,
+    # 0.56*fyg. The 0.56 = HEE.PosY/LM.PosY in the calibration pose and is
+    # estimate from the subject in trial 20 with these numbers:
+    # RHEE.PosY.mean() = 0.051276430563978154
+    # RLM.PosY.mean() = 0.09135660837737156
+    # TODO : Make the heel/toe marker height a variable and store it in the
+    # subject specific calibration.
+    p = 0.56
     points = {
         'ank_l': lshank.joint,  # left ankle
         'ank_r': rshank.joint,  # right ankle
@@ -451,6 +494,8 @@ def load_sample_data(num_nodes, gait_cycle_number=100):
         'LLEK.PosY',
         'LLM.PosX',
         'LLM.PosY',
+        'LMT5.PosX',
+        'LMT5.PosY',
         'LSHO.PosX',
         'LSHO.PosY',
         'LTOE.PosX',
@@ -463,6 +508,8 @@ def load_sample_data(num_nodes, gait_cycle_number=100):
         'RLEK.PosY',
         'RLM.PosX',
         'RLM.PosY',
+        'RMT5.PosX',
+        'RMT5.PosY',
         'RSHO.PosX',
         'RSHO.PosY',
         'RTOE.PosX',
@@ -477,12 +524,12 @@ def load_sample_data(num_nodes, gait_cycle_number=100):
         #'FP2.ForX',
         #'FP2.ForY',
         #'FP2.ForZ',
-        'Left.Hip.Flexion.Moment',
-        'Left.Knee.Flexion.Moment',
-        'Left.Ankle.PlantarFlexion.Moment',
         'Right.Hip.Flexion.Moment',
         'Right.Knee.Flexion.Moment',
         'Right.Ankle.PlantarFlexion.Moment',
+        'Left.Hip.Flexion.Moment',
+        'Left.Knee.Flexion.Moment',
+        'Left.Ankle.PlantarFlexion.Moment',
     ]
     kinetic_vals = df[kinetics].values
 
@@ -498,7 +545,8 @@ def load_sample_data(num_nodes, gait_cycle_number=100):
             mark_df, kinetic_df)
 
 
-def plot_joint_comparison(t, angles, torques, angles_meas, torques_meas=None):
+def plot_joint_comparison(t, angles, torques, angles_meas, torques_meas=None,
+                          grf=None, grf_meas=None):
     """
     Parameters
     ==========
@@ -512,13 +560,21 @@ def plot_joint_comparison(t, angles, torques, angles_meas, torques_meas=None):
         hip flexion, knee flexion, ankle dorsiflexion
     torques_meas : array_like, shape(N, 3), optional
         hip extension, knee extension, ankle plantarflexion
+    grf : array_like, shape(N, 2)
+        horizontal, vertical
+    grf_meas : array_like, shape(N, 2)
+        horizontal, vertical
 
     Returns
     =======
     axes : shape(2,)
 
     """
-    fig, axes = plt.subplots(2, 1, figsize=(6.0, 9.0))
+    if grf is not None:
+        fig, axes = plt.subplots(3, 1, figsize=(6.0, 9.0))
+        grf_labels = ('horizontal', 'vertical')
+    else:
+        fig, axes = plt.subplots(2, 1, figsize=(6.0, 9.0))
     colors = ('C0', 'C1', 'C2')
 
     anglabels = ('hip flexion', 'knee flexion', 'ankle dorsiflexion')
@@ -535,10 +591,24 @@ def plot_joint_comparison(t, angles, torques, angles_meas, torques_meas=None):
         axes[1].plot(t, tor, color=color, label=lab)
     if torques_meas is not None:
         for tor, color, lab in zip(torques_meas.T, colors, torlabels):
-            axes[1].plot(t, tor, color=color, label=lab + ' measured')
+            axes[1].plot(t, tor, color=color, linestyle='--',
+                         label=lab + ' measured')
     axes[1].legend()
     axes[1].set_ylabel('Torque [Nm]')
     axes[1].set_xlabel('Time [s]')
+
+    if grf is not None:
+        for grf_com, color, lab in zip(grf.T, colors, grf_labels):
+            axes[2].plot(t, grf_com, color=color, label=lab)
+    if grf_meas is not None:
+        for grf_com, color, lab in zip(grf_meas.T, colors, grf_labels):
+            axes[2].plot(t, grf_com, color=color, linestyle='--',
+                         label=lab + ' measured')
+
+    if (grf is not None) or (grf_meas is not None):
+        axes[2].set_ylabel('Ground reaction force [N]')
+        axes[2].set_xlabel('Time [s]')
+        axes[2].legend()
 
     return axes
 
