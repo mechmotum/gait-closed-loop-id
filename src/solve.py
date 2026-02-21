@@ -7,6 +7,7 @@ known feedback controller to generate synthetic data for testing our controller
 identification method.
 """
 from datetime import datetime
+import itertools
 import logging
 import os
 import platform
@@ -52,10 +53,10 @@ NUM_NODES = 50  # number of time nodes for the half period
 SEED = True  # set to integer value for specific seed value, True(=1), or False
 STIFFNESS_EXP = 2  # exponent of the contact stiffness force
 SUBJECT_MASS = 70.0  # kg of subject from trial 20, TODO: extract from metadata
-USE_WINTER_DATA = True  # if we want to track Winter's gait data
+USE_WINTER_DATA = False  # if we want to track Winter's gait data
 # Remove parts of the objective by setting to integer 0.
 WANG = 100.0  # weight of mean squared angle tracking error (in rad)
-WMAR = 0  # weight of mean squared marker tracking error (in meters)
+WMAR = 100.0  # weight of mean squared marker tracking error (in meters)
 WREG = 1e-6  # weight of mean squared time derivatives
 WTOR = 1000.0  # weight of the mean squared torque (in kNm) objective
 
@@ -155,6 +156,7 @@ bounds.update({k: (-np.deg2rad(400.0), np.deg2rad(400.0))
 # all joint torques
 bounds.update({k: (-600.0, 600.0)
                for k in [Tb, Tc, Td, Te, Tf, Tg]})
+# TODO : Add bounds for marker trajectories.
 
 # To enforce a half period, set the right leg's angles at the initial time to
 # be equal to the left leg's angles at the final time and vice versa. The same
@@ -190,9 +192,14 @@ instance_constraints = (
 
 # When tracking markers, simulated marker trajectories must be periodic too
 if WMAR != 0:
-    for i, marker_sym in enumerate(marker_coords[:-2]):
-        con = (marker_sym.func(0*h) - marker_coords[i + 2].func(duration),
-               marker_coords[i + 2].func(0*h) - marker_sym.func(duration))
+    for (lx, ly, rx, ry) in itertools.zip_longest(*[iter(marker_coords)]*4):
+        # group per marker: (ank_lx(t), ank_ly(t), ank_rx(t), ank_ry(t))
+        con = (
+            lx.func(0*h) - rx.func(duration),
+            rx.func(0*h) - lx.func(duration),
+            ly.func(0*h) - ry.func(duration),
+            ry.func(0*h) - ly.func(duration),
+        )
         instance_constraints += con
 
 # When not tracking markers, the dynamics and cost function are invariant
