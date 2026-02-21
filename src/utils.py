@@ -264,14 +264,14 @@ def generate_marker_equations(symbolics):
     points = {
         'ank_l': lshank.joint,  # left ankle
         'ank_r': rshank.joint,  # right ankle
-        #'hel_l': lfoot.heel,
-        #'hel_r': rfoot.heel,
-        'hip_l': trunk.joint,  # hip
-        'hip_r': trunk.joint,  # hip
+        #'hel_l': lfoot.heel.locatenew('hee_l', -p*fyg*lfoot.reference_frame.y),
+        #'hel_r': rfoot.heel.locatenew('hee_r', -p*fyd*rfoot.reference_frame.y),
+        #'hip_l': trunk.joint,  # hip
+        #'hip_r': trunk.joint,  # hip
         'kne_l': lthigh.joint,  # left knee
         'kne_r': rthigh.joint,  # right knee
-        #'toe_l': lfoot.toe,
-        #'toe_r': rfoot.toe,
+        'toe_l': lfoot.toe.locatenew('toe_l', -p*fyg*lfoot.reference_frame.y),
+        'toe_r': rfoot.toe.locatenew('toe_r', -p*fyd*rfoot.reference_frame.y),
     }
 
     point_data_map = {
@@ -279,12 +279,12 @@ def generate_marker_equations(symbolics):
         'ank_r': 'RLM',
         #'hel_l': 'LHEE',
         #'hel_r': 'RHEE',
-        'hip_l': 'LGTRO',
-        'hip_r': 'RGTRO',
+        #'hip_l': 'LGTRO',
+        #'hip_r': 'RGTRO',
         'kne_l': 'LLEK',
         'kne_r': 'RLEK',
-        #'toe_l': 'LTOE',
-        #'toe_r': 'RTOE',
+        'toe_l': 'LMT5',
+        'toe_r': 'RMT5',
     }
 
     variables = []
