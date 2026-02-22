@@ -356,7 +356,7 @@ initial_guess = (initial_guess +
 
 
 # Solve the gait optimization problem for given belt speed
-def solve_gait(speed, initial_guess=None):
+def solve_gait(speed, initial_guess):
 
     # change the belt speed signal
     traj_map[v] = speed*np.ones(NUM_NODES)
@@ -368,7 +368,6 @@ def solve_gait(speed, initial_guess=None):
     # we accept solve_succeeded (0) and solved_to_acceptable_level (1)
     if info['status'] < 0:
         logger.info("IPOPT was not successful.")
-        #breakpoint()
 
     # show the final objective function value and its contributions
     obj(prob, solution, obj_show=True)
@@ -381,6 +380,7 @@ for speed in np.linspace(0.1, walking_speed, num=10):
     solution = solve_gait(speed, initial_guess)
     initial_guess = solution  # use this solution as guess for the next problem
 
+# TODO : Move data preparation for plots into functions in utils.py
 # extract angles and torques
 ang = extract_values(prob, solution, *syms.joint_angles,
                      slice=(0, -1)).reshape(num_angles,
