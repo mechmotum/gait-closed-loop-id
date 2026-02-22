@@ -1,7 +1,10 @@
+This repository houses data and code for a project on the closed loop
+identification of human gait control from perturbed walking.
+
 Setup
 =====
 
-Clone the repository where the developement is done::
+Clone the repository where the development is done::
 
    git clone git@github.com:mechmotum/gait-closed-loop-id.git
 
@@ -69,6 +72,10 @@ Plot the calibration pose and a gait cycle::
 
    python src/utils.py
 
-Solve an optimal control problem::
+Solve the optimal standing solution::
+
+   python src/solve_standing.py
+
+Solve the gait motion tracking problem::
 
    python src/solve.py
