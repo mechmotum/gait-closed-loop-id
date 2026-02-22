@@ -55,8 +55,8 @@ STIFFNESS_EXP = 2  # exponent of the contact stiffness force
 SUBJECT_MASS = 70.0  # kg of subject from trial 20, TODO: extract from metadata
 USE_WINTER_DATA = False  # if we want to track Winter's gait data
 # Remove parts of the objective by setting to integer 0.
-WANG = 100.0  # weight of mean squared angle tracking error (in rad)
-WMAR = 100.0  # weight of mean squared marker tracking error (in meters)
+WANG = 0  # weight of mean squared angle tracking error (in rad)
+WMAR = 1000.0  # weight of mean squared marker tracking error (in meters)
 WREG = 1e-6  # weight of mean squared time derivatives
 WTOR = 1000.0  # weight of the mean squared torque (in kNm) objective
 
@@ -122,6 +122,7 @@ if STIFFNESS_EXP == 2:
 if (not USE_WINTER_DATA) and os.path.exists(CALIBDATAPATH):
     scaled_par = body_segment_parameters_from_calibration(CALIBDATAPATH,
                                                           SUBJECT_MASS)
+    # TODO : get this to work with SymbolDict: par_map.update(scaled_par)
     for c in syms.constants:
         try:
             par_map[c] = scaled_par[c.name]
@@ -408,7 +409,8 @@ if WMAR != 0:
     tor_meas = np.vstack((tor_meas[:, 0:3],
                           tor_meas[:, 3:6],
                           tor_meas[1, 0:3]))
-    tor_meas[:, 1] = -tor_meas[:, 1]
+    tor_meas[:, 0] = -tor_meas[:, 0]  # hip
+    tor_meas[:, 1] = -tor_meas[:, 1]  # knee
     plot_joint_comparison(t, ang, tor, dat, torques_meas=tor_meas)
 else:
     plot_joint_comparison(t, ang, tor, dat)
