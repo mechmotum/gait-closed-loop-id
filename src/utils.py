@@ -895,7 +895,7 @@ def plot_marker_comparison(marker_coords, marker_labels, marker_df, prob,
 
         ax.plot(marker_df[rx_lab], marker_df[ry_lab],
                 color=f'C{i}',
-                linestyle='--',
+                linestyle=':',
                 label=f'{rx_lab}, Data')
 
     ax.set_aspect("equal")
