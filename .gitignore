@@ -1,6 +1,11 @@
-/src/__pycache__
-src/human_gait.gif
-src/human_gait_40_nodes_solution.csv
-*.csv
+*.py[codz]
+__pycache__/
+data/020-calibration-pose.csv
 data/020-longitudinal-perturbation-gait-cycles.csv
-/src/gait_codegen
+data/standing.csv
+gait_codegen/
+human_gait.gif
+src/__pycache__/
+src/gait_codegen/
+src/human_gait.gif
+src/gait2d/
