@@ -13,7 +13,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        python-version: ["3.13"]
+        python-version: ["3.14"]
     name: test
     steps:
       - uses: actions/checkout@v4
@@ -24,13 +24,6 @@ jobs:
           python-version: ${{ matrix.python-version }}
           channels: conda-forge
           environment-file: gait-closed-loop-id-env.yml
-      - name: install extra dependencies
-        shell: bash -l {0}
-        run: |
-          git clone https://github.com/csu-hmc/gait2d.git
-          cd gait2d/
-          python -m pip install --no-dependencies --no-build-isolation --editable  .
-          cd -
       - name: test model evaluation
         shell: bash -l {0}
         run: |
