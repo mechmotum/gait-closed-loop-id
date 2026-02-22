@@ -16,6 +16,31 @@ GAITDATAPATH = os.path.join(DATADIR, GAITFILE)
 CALIBDATAPATH = os.path.join(DATADIR, CALIBFILE)
 
 
+def tile_standing(standing_sol, num_nodes, num_angles, num_states):
+    """Returns an array with the standing solution repeated for every node.
+
+    Parameters
+    ==========
+    standing_sol : ndarray, shape(num_free, )
+    num_nodes : integer
+    num_angles : integer
+    num_states : integer
+
+    Returns
+    =======
+    trajectory : ndarray, shape(num_free, num_nodes)
+
+    """
+    # coordinates and speeds as column vector
+    standing_state = standing_sol[0:num_states].reshape(-1, 1)
+    # make num_nodes copies
+    state_traj = np.tile(standing_state, (1, num_nodes))
+    # intialize torques to zero
+    tor_traj = np.zeros((num_angles, num_nodes))
+    # complete trajectory
+    return np.concatenate((state_traj, tor_traj))
+
+
 def fill_free(problem, free, values, *variables, slice=(None, None),
               add=False):
     """Replaces the values in a vector shaped the same as the free optimization

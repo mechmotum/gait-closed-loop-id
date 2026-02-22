@@ -20,6 +20,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import sympy as sm
 
+from solve_standing import find_standing_state
 from utils import (
     CALIBDATAPATH,
     DATADIR,
@@ -34,6 +35,7 @@ from utils import (
     load_winter_data,
     plot_joint_comparison,
     plot_marker_comparison,
+    tile_standing,
 )
 
 logger = logging.getLogger(__name__)
@@ -334,16 +336,13 @@ prob.add_option('print_level', 0)
 
 # make an initial guess from the standing solution
 logger.info('Making an initial guess.')
-fname = 'standing.csv'
+fname = os.path.join(DATADIR, 'standing.csv')
 if not os.path.exists(fname):
     logger.info('Solving standing problem.')
-    # executes standing solution and generates 'standing.csv'
-    import solve_standing  # this works, but probably not good python style
-standing_sol = np.loadtxt(fname)
-standing_state = standing_sol[0:num_states].reshape(-1, 1)  # coordinates and speeds as column vector
-state_traj = np.tile(standing_state, (1, NUM_NODES))  # make NUM_NODES copies
-tor_traj = np.zeros((num_angles, NUM_NODES))  # intialize torques to zero
-initial_guess = np.concatenate((state_traj, tor_traj))  # complete trajectory
+    standing_sol = find_standing_state()
+else:
+    standing_sol = np.loadtxt(fname)
+initial_guess = tile_standing(standing_sol, NUM_NODES, num_angles, num_states)
 if WMAR != 0:
     # TODO : The marker positions could be calculated from the generalized
     # coordinates.
@@ -352,7 +351,8 @@ if WMAR != 0:
 initial_guess = initial_guess.flatten()  # make a single row vector
 if SEED:
     np.random.seed(SEED)  # this makes the result reproducible
-initial_guess = initial_guess + 0.01*np.random.random_sample(len(initial_guess))
+initial_guess = (initial_guess +
+                 0.01*np.random.random_sample(len(initial_guess)))
 
 
 # Solve the gait optimization problem for given belt speed
