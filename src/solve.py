@@ -57,8 +57,8 @@ STIFFNESS_EXP = 2  # exponent of the contact stiffness force
 SUBJECT_MASS = 70.0  # kg of subject from trial 20, TODO: extract from metadata
 USE_WINTER_DATA = False  # if we want to track Winter's gait data
 # Remove parts of the objective by setting to integer 0.
-WANG = 0  # weight of mean squared angle tracking error (in rad)
-WMAR = 1000.0  # weight of mean squared marker tracking error (in meters)
+WANG = 1000  # weight of mean squared angle tracking error (in rad)
+WMAR = 0.0  # weight of mean squared marker tracking error (in meters)
 WREG = 1e-6  # weight of mean squared time derivatives
 WTOR = 1000.0  # weight of the mean squared torque (in kNm) objective
 
@@ -205,15 +205,6 @@ if WMAR != 0:
         )
         instance_constraints += con
 
-# When not tracking markers, the dynamics and cost function are invariant
-# to a constant horizontal translation of the trajectory, so there is no
-# unique solution. We therefore require qax(t=0) = 0
-# (it would be better to use the bounds to require free[0]=zero, but I don't
-# know how to do this in opty, I only see bounds on the whole trajectory)
-if WMAR == 0:
-    instance_constraints += (qax.func(0*h),)
-
-
 def obj(prob, free, obj_show=False):
     """
     Objective function::
@@ -319,6 +310,16 @@ prob = Problem(
     time_symbol=time_symbol,
     tmp_dir='gait_codegen',  # enables binary caching
 )
+
+# When not tracking markers, the dynamics and cost function are invariant
+# to a constant horizontal translation of the trajectory, so there is no
+# unique solution. We therefore require qax(t=0) = 0
+# (it would be better to use the bounds to require free[0]=zero, but I don't
+# know how to do this in opty, I only see bounds on the whole trajectory)
+if WMAR == 0:
+    # instance_constraints += (qax.func(0*h),)
+    prob.lower_bound[0] = 0.0
+    prob.upper_bound[0] = 0.0
 
 if LINEAR_SOLVER.startswith('ma'):
     # TODO : Load correct shared lib on Windows/Darwin
