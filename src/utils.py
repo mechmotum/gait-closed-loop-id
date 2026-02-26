@@ -437,6 +437,37 @@ def plot_points(df):
     return ax
 
 
+def load_winter_data2(subject_mass=None, half_cycle=False):
+    """
+
+    rows 0, 1, 2, 3 at not tabular
+    last row is empty
+
+    angles are in degrees
+    forces and torques are normalized by the mass of the person
+    """
+    fname = os.path.join(DATADIR, 'Winter_normal.csv')
+
+    # extract gait cycle duration and speed
+    data = np.genfromtxt(fname, delimiter=',')
+    duration = data[1, 2]
+    walking_speed = data[2, 2]
+
+    df = pd.read_csv(fname, header=4, skiprows=[5], index_col='sample')
+    df.drop(index=df.index[-1], inplace=True)
+    df.drop(columns=['Unnamed: 2', 'Unnamed: 3'], inplace=True)
+    df.index = df.index.astype(int)
+    df.columns = df.columns.str.strip()
+    df['time'] = np.linspace(0.0, duration, num=len(df))
+    if subject_mass is not None:
+        kinetics = ['horizontal GRF', 'vertical GRF', 'hip moment',
+                    'knee moment', 'ankle moment']
+        for kinetic in kinetics:
+            df[kinetic] = df[kinetic]*subject_mass
+
+    return walking_speed, df
+
+
 def load_winter_data(num_nodes):
     """Returns interpolated normative gait data from Winter's book.
 
@@ -454,8 +485,7 @@ def load_winter_data(num_nodes):
         ankleN, hip1, ..., hipN, knee1, ..., kneeN, ankle1, ..., ankleN]
 
     """
-    fname = os.path.join(os.path.dirname(__file__),
-                         os.path.join('..', 'data', 'Winter_normal.csv'))
+    fname = os.path.join(DATADIR, 'Winter_normal.csv')
 
     data = np.genfromtxt(fname, delimiter=',')
 
