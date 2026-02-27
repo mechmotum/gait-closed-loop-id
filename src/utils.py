@@ -437,15 +437,46 @@ def plot_points(df):
     return ax
 
 
-def load_winter_data2(subject_mass=None, half_cycle=False):
-    """
+def load_winter_data_frame(half_cycle=False):
+    """Returns Winter's normative gait data transformed to match naming
+    conventions of our measurement data.
 
-    rows 0, 1, 2, 3 at not tabular
-    last row is empty
+    Parameters
+    ==========
+    half_cycle : boolean, optional
+        If true, returns the first half of the gait cycle 0% to 50%. Else the
+        full gait cycle 0% to 100% is returned.
 
-    angles are in degrees
-    forces and torques are normalized by the mass of the person
+    Returns
+    =======
+    walking_speed : float
+        Average walking speed during the gait cycle.
+    df : DataFrame
+        Index is the sample number.
+
     """
+    winter_moore_map = {
+        # FP2 is the right force plate
+        'vertical GRF': ('FP2.ForY', 1.0, 0.0),
+        'horizontal GRF': ('FP2.ForX', 1.0, 0.0),
+        'hip angle': ('Right.Hip.Flexion.Angle', 1.0, 0.0),
+        'knee angle': ('Right.Knee.Flexion.Angle', 1.0, 0.0),
+        # negate and substract 90 deg from Winter to get mine
+        'ankle angle': ('Right.Ankle.PlantarFlexion.Angle', -1.0, -90.0),
+        # negate
+        'hip moment': ('Right.Hip.Flexion.Moment', -1.0, 0.0),
+        # negate
+        'knee moment': ('Right.Knee.Flexion.Moment', -1.0, 0.0),
+        'ankle moment': ('Right.Ankle.PlantarFlexion.Moment', 1.0, 0.0),
+    }
+
+    subject_mass = 75.0  # kg (from Winter's book)
+
+    # notes on Winter_normal.csv:
+    # rows 0, 1, 2, 3 at not tabular
+    # last row is empty
+    # angles are in degrees
+    # forces and torques are normalized by the mass of the person
     fname = os.path.join(DATADIR, 'Winter_normal.csv')
 
     # extract gait cycle duration and speed
@@ -454,16 +485,34 @@ def load_winter_data2(subject_mass=None, half_cycle=False):
     walking_speed = data[2, 2]
 
     df = pd.read_csv(fname, header=4, skiprows=[5], index_col='sample')
+    # last row is empty
     df.drop(index=df.index[-1], inplace=True)
+    # two empty columns
     df.drop(columns=['Unnamed: 2', 'Unnamed: 3'], inplace=True)
     df.index = df.index.astype(int)
+    # remove whitespace
     df.columns = df.columns.str.strip()
-    df['time'] = np.linspace(0.0, duration, num=len(df))
+    df['Time'] = np.linspace(0.0, duration, num=len(df))
     if subject_mass is not None:
         kinetics = ['horizontal GRF', 'vertical GRF', 'hip moment',
                     'knee moment', 'ankle moment']
         for kinetic in kinetics:
             df[kinetic] = df[kinetic]*subject_mass
+
+    for k, v in winter_moore_map.items():
+        name, sign, offset = v
+        df[name] = sign*df[k] + offset
+        left = np.hstack((df[k][25:], df[k][:25]))
+        lname = name.replace('Right', 'Left').replace('FP2', 'FP1')
+        df[lname] = sign*left + offset
+
+    df.rename(columns={'%gait cycle': 'Percent Gait Cycle'}, inplace=True)
+
+    for k in winter_moore_map.keys():
+        del df[k]
+
+    if half_cycle:
+        df = df.iloc[:26, :]
 
     return walking_speed, df
 
@@ -940,4 +989,8 @@ if __name__ == "__main__":
     master_df = pd.read_csv(GAITDATAPATH)
     df = extract_gait_cycle(master_df, 100)
     plot_points(df)
+
+    s, df = load_winter_data_frame(half_cycle=True)
+    df.plot(x='Time', marker='.', subplots=True)
+
     plt.show()
