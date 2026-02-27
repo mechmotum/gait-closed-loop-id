@@ -437,12 +437,15 @@ def plot_points(df):
     return ax
 
 
-def load_winter_data_frame(half_cycle=False):
+def load_winter_data_frame(num_nodes=None, half_cycle=False):
     """Returns Winter's normative gait data transformed to match naming
     conventions of our measurement data.
 
     Parameters
     ==========
+    num_nodes : integer, optional
+        If provided, data will be interpolated at the number of linearly spaced
+        time nodes.
     half_cycle : boolean, optional
         If true, returns the first half of the gait cycle 0% to 50%. Else the
         full gait cycle 0% to 100% is returned.
@@ -451,7 +454,7 @@ def load_winter_data_frame(half_cycle=False):
     =======
     walking_speed : float
         Average walking speed during the gait cycle.
-    df : DataFrame
+    df : DataFrame, shape(num_nodes, ?)
         Index is the sample number.
 
     """
@@ -493,6 +496,7 @@ def load_winter_data_frame(half_cycle=False):
     # remove whitespace
     df.columns = df.columns.str.strip()
     df['Time'] = np.linspace(0.0, duration, num=len(df))
+    df['Speed'] = walking_speed
     if subject_mass is not None:
         kinetics = ['horizontal GRF', 'vertical GRF', 'hip moment',
                     'knee moment', 'ankle moment']
@@ -514,7 +518,14 @@ def load_winter_data_frame(half_cycle=False):
     if half_cycle:
         df = df.iloc[:26, :]
 
-    return walking_speed, df
+    if num_nodes is not None:
+        t0, tf = df['Time'].values[[0, -1]]
+        new_time = np.linspace(t0, tf, num=num_nodes)
+        df = pd.DataFrame(interp1d(df['Time'], df.values, axis=0)(new_time),
+                          columns=df.columns,
+                          index=np.arange(len(new_time)) + 1)
+
+    return df
 
 
 def load_winter_data(num_nodes):
@@ -990,7 +1001,12 @@ if __name__ == "__main__":
     df = extract_gait_cycle(master_df, 100)
     plot_points(df)
 
-    s, df = load_winter_data_frame(half_cycle=True)
-    df.plot(x='Time', marker='.', subplots=True)
+    num_nodes = 37
+    (duration, walking_speed, num_angles, ang_data, marker_df,
+     kinetic_df) = load_sample_data(num_nodes, gait_cycle_number=45)
+    kinetic_df.plot(marker='.', subplots=True)
+
+    winter_df = load_winter_data_frame(num_nodes=num_nodes, half_cycle=True)
+    winter_df.plot(x='Time', marker='.', subplots=True)
 
     plt.show()
