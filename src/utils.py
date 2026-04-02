@@ -452,8 +452,6 @@ def load_winter_data_frame(num_nodes=None, half_cycle=False):
 
     Returns
     =======
-    walking_speed : float
-        Average walking speed during the gait cycle.
     df : DataFrame, shape(num_nodes, ?)
         Index is the sample number.
 
@@ -506,6 +504,9 @@ def load_winter_data_frame(num_nodes=None, half_cycle=False):
     for k, v in winter_moore_map.items():
         name, sign, offset = v
         df[name] = sign*df[k] + offset
+        # TODO : Is this the correct shift, i.e. moving the 50% sample to the
+        # 0%? Ton does (ang[:26, :], ang[25:, :]) below, which adds one point
+        # twice.
         left = np.hstack((df[k][25:], df[k][:25]))
         lname = name.replace('Right', 'Left').replace('FP2', 'FP1')
         df[lname] = sign*left + offset
@@ -561,6 +562,7 @@ def load_winter_data(num_nodes):
     # convert full gait cycle (one side) into a half gait cycle for both sides
     # and resample to num_nodes
     ang = np.concatenate((ang[:26, :], ang[25:, :]), axis=1)
+    print(ang)
     rows, num_angles = ang.shape
     ang_resampled = np.zeros((num_nodes - 1, num_angles))
     t = np.arange(0, rows)/(rows - 1)  # gait phase from data
@@ -1007,6 +1009,8 @@ if __name__ == "__main__":
     kinetic_df.plot(marker='.', subplots=True)
 
     winter_df = load_winter_data_frame(num_nodes=num_nodes, half_cycle=True)
-    winter_df.plot(x='Time', marker='.', subplots=True)
+    winter_df.plot(x='Time', marker='.', subplots=True, layout=(-1, 2))
+
+    load_winter_data(num_nodes)
 
     plt.show()
