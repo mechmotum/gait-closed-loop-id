@@ -192,19 +192,15 @@ def animate(symbolics, xs, rs, h, speed, times, par_map, stiffness_exp):
 
     # show ground reaction force vectors at the heels and toes, scaled to
     # visually reasonable length
-    v = symbolics.specifieds[-1]
-    scene.add_vector(contact_force(rfoot.toe, ground, origin, v,
-                                   stiffness_exp=stiffness_exp)/600.0,
-                     rfoot.toe, color="tab:blue")
-    scene.add_vector(contact_force(rfoot.heel, ground, origin, v,
-                                   stiffness_exp=stiffness_exp)/600.0,
-                     rfoot.heel, color="tab:blue")
-    scene.add_vector(contact_force(lfoot.toe, ground, origin, v,
-                                   stiffness_exp=stiffness_exp)/600.0,
-                     lfoot.toe, color="tab:blue")
-    scene.add_vector(contact_force(lfoot.heel, ground, origin, v,
-                                   stiffness_exp=stiffness_exp)/600.0,
-                     lfoot.heel, color="tab:blue")
+    grf = symbolics.ground_reaction_forces
+    scene.add_vector(grf['Right Foot toe']/600.0, rfoot.toe,
+                     color="tab:blue")
+    scene.add_vector(grf['Right Foot heel']/600.0, rfoot.heel,
+                     color="tab:blue")
+    scene.add_vector(grf['Left Foot toe']/600.0, lfoot.toe,
+                     color="tab:blue")
+    scene.add_vector(grf['Left Foot heel']/600.0, lfoot.heel,
+                     color="tab:blue")
 
     scene.lambdify_system(symbolics.states + symbolics.specifieds +
                           symbolics.constants)
@@ -230,18 +226,12 @@ def animate(symbolics, xs, rs, h, speed, times, par_map, stiffness_exp):
 
     eval_rforce = sm.lambdify(
         symbolics.states + symbolics.specifieds + symbolics.constants,
-        (contact_force(rfoot.toe, ground, origin, v,
-                       stiffness_exp=stiffness_exp) +
-         contact_force(rfoot.heel, ground, origin, v,
-                       stiffness_exp=stiffness_exp)).to_matrix(ground),
+        (grf['Right Foot heel'] + grf['Right Foot toe']).to_matrix(ground),
         cse=True)
 
     eval_lforce = sm.lambdify(
         symbolics.states + symbolics.specifieds + symbolics.constants,
-        (contact_force(lfoot.toe, ground, origin, v,
-                       stiffness_exp=stiffness_exp) +
-         contact_force(lfoot.heel, ground, origin, v,
-                       stiffness_exp=stiffness_exp)).to_matrix(ground),
+        (grf['Left Foot heel'] + grf['Left Foot toe']).to_matrix(ground),
         cse=True)
 
     rforces = np.array([eval_rforce(*gci).squeeze() for gci in gait_cycle.T])
@@ -382,6 +372,53 @@ def generate_marker_equations(symbolics):
                         point_data_map[lab] + '.PosY']
 
     return variables, equations, data_labels
+
+def generate_grf_equations(symbolics):
+    """Returns the equations for the x and y ground reaction forces to track.
+
+    Parameters
+    ==========
+    symbolics : pygait2d.derive.Symbolics
+        Dataclass containing the symbolic model.
+
+    Returns
+    =======
+    variables : list of Symbol
+        SymPy symbols for the x and y measure numbers of the resultant force on
+        each foot.
+    equations : list of Expr
+        SymPy expressions representing the equations for the x and y measure
+        numbers of the resultant force on each foot.
+    labels : list of str
+        List of measured ground reaction force labels that correspond to the
+        model ground reaction forces to track.
+
+    """
+    grf = symbolics.ground_reaction_forces
+    N = symbolics.inertial_frame
+
+    right_vars = sm.Matrix(time_varying('Frx, Fry'))
+    left_vars = sm.Matrix(time_varying('Flx, Fly'))
+
+    variables = right_vars.col_join(left_vars)[:]
+
+    right_force = grf['Right Foot heel'] + grf['Right Foot toe']
+    left_force = grf['Left Foot heel'] + grf['Left Foot toe']
+
+    right_eqs = right_vars - right_force.to_matrix(N)[:2, :]
+    left_eqs = left_vars - left_force.to_matrix(N)[:2, :]
+    equations = right_eqs.col_join(left_eqs)
+
+    # FP1 is left
+    # FP2 is right
+    labels = [
+        'FP2.ForX',
+        'FP2.ForY',
+        'FP1.ForX',
+        'FP1.ForY',
+    ]
+
+    return variables, equations, labels
 
 
 def extract_gait_cycle(df, number):
@@ -556,12 +593,12 @@ def load_sample_data(num_nodes, gait_cycle_number=100):
     marker_vals = df[markers].values
 
     kinetics = [
-        #'FP1.ForX',
-        #'FP1.ForY',
-        #'FP1.ForZ',
-        #'FP2.ForX',
-        #'FP2.ForY',
-        #'FP2.ForZ',
+        'FP1.ForX',
+        'FP1.ForY',
+        'FP1.ForZ',
+        'FP2.ForX',
+        'FP2.ForY',
+        'FP2.ForZ',
         'Right.Hip.Flexion.Moment',
         'Right.Knee.Flexion.Moment',
         'Right.Ankle.PlantarFlexion.Moment',
