@@ -59,7 +59,7 @@ SUBJECT_MASS = 70.0  # kg of subject from trial 20, TODO: extract from metadata
 USE_WINTER_DATA = False  # if we want to track Winter's gait data
 # Remove parts of the objective by setting to integer 0.
 WANG = 1000.0  # weight of mean squared angle tracking error (in rad)
-WGRF = 1.0  # weight of mean squared GRF tracking error (in Newtons)
+WGRF = 0.005  # weight of mean squared GRF tracking error (in Newtons)
 WMAR = 0  # weight of mean squared marker tracking error (in meters)
 WREG = 1e-6  # weight of mean squared time derivatives
 WTOR = 1000.0  # weight of the mean squared torque (in kNm) objective
@@ -81,9 +81,12 @@ h = duration/(NUM_NODES - 1)
 
 # Derive the equations of motion
 logger.info('Deriving the equations of motion.')
-syms = derive_equations_of_motion(prevent_ground_penetration=False,
-                                  treadmill=True, hand_of_god=False,
-                                  stiffness_exp=STIFFNESS_EXP)
+syms = derive_equations_of_motion(
+    prevent_ground_penetration=False,
+    treadmill=True,
+    hand_of_god=False,
+    stiffness_exp=STIFFNESS_EXP,
+)
 eom = syms.equations_of_motion
 logger.info('Number of operations in eom: {}'.format(sm.count_ops(eom)))
 
@@ -98,7 +101,7 @@ if WMAR != 0:
     eom = eom.col_join(sm.Matrix(marker_eqs))
     mar_data = marker_df[marker_labels].values.T.flatten()
 
-# Ground reaction forces are in units XXXX
+# Ground reaction forces are in units Newtons
 if WGRF != 0:
     grf_syms, grf_eqs, grf_labels = generate_grf_equations(syms)
     eom = eom.col_join(grf_eqs)
@@ -115,6 +118,7 @@ if WGRF != 0:
 qax, qay, qa, qb, qc, qd, qe, qf, qg = syms.coordinates
 uax, uay, ua, ub, uc, ud, ue, uf, ug = syms.speeds
 Tb, Tc, Td, Te, Tf, Tg, v = syms.specifieds
+Frx, Fry, Flx, Fly = grf_syms
 reg_syms = syms.states + syms.joint_torques
 num_states = len(syms.states)
 
@@ -167,7 +171,7 @@ bounds.update({k: (-np.deg2rad(400.0), np.deg2rad(400.0))
 # all joint torques
 bounds.update({k: (-600.0, 600.0)
                for k in [Tb, Tc, Td, Te, Tf, Tg]})
-# TODO : Add bounds for marker trajectories.
+# TODO : Add bounds for marker trajectories and ground reaction forces.
 
 # To enforce a half period, set the right leg's angles at the initial time to
 # be equal to the left leg's angles at the final time and vice versa. The same
@@ -213,7 +217,16 @@ if WMAR != 0:
         )
         instance_constraints += con
 
-# TODO : add periodcity for ground reaction forces
+# When tracking ground reaction forces, simulation must be periodic too
+if WGRF != 0:
+    con = (
+        Flx.func(0*h) - Frx.func(duration),
+        Frx.func(0*h) - Flx.func(duration),
+        Fly.func(0*h) - Fry.func(duration),
+        Fry.func(0*h) - Fly.func(duration),
+    )
+    instance_constraints += con
+
 
 def obj(prob, free, obj_show=False):
     """
@@ -240,8 +253,8 @@ def obj(prob, free, obj_show=False):
     if WANG != 0:
         ang_vals = extract_values(prob, free, *syms.joint_angles,
                                   slice=(0, -1))
-        f_track_ang = WANG*np.sum((ang_vals - ang_data)**2)/len(ang_vals)
-        f_tot += f_track_ang
+        f_ang = WANG*np.sum((ang_vals - ang_data)**2)/len(ang_vals)
+        f_tot += f_ang
 
     # smooth all regularization trajectories
     if WREG != 0:
@@ -259,19 +272,19 @@ def obj(prob, free, obj_show=False):
     # minimize mean ground reaction force tracking error
     if WGRF != 0:
         grf_vals = extract_values(prob, free, *grf_syms, slice=(0, -1))
-        f_track_grf = WGRF*np.sum((grf_vals - grf_data)**2)/len(grf_vals)
-        f_tot += f_track_grf
+        f_grf = WGRF*np.sum((grf_vals - grf_data)**2)/len(grf_vals)
+        f_tot += f_grf
 
     if obj_show:
         msg = (f"   obj: {f_tot:.3f} = {f_tor:.3f}(torque)")
         if WREG != 0:
             msg += f" + {f_reg:.3f}(reg)"
         if WANG != 0:
-            msg += f" + {f_track_ang:.3f}(angle)"
+            msg += f" + {f_ang:.3f}(angle)"
         if WMAR != 0:
             msg += f" + {f_mar:.3f}(marker)"
         if WGRF != 0:
-            msg += f" + {f_track_grf:.3f}(grf)"
+            msg += f" + {f_grf:.3f}(grf)"
         print(msg)
 
     return f_tot
