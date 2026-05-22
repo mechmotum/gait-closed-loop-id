@@ -58,9 +58,9 @@ STIFFNESS_EXP = 2  # exponent of the contact stiffness force
 SUBJECT_MASS = 70.0  # kg of subject from trial 20, TODO: extract from metadata
 USE_WINTER_DATA = False  # if we want to track Winter's gait data
 # Remove parts of the objective by setting to integer 0.
-WANG = 1000  # weight of mean squared angle tracking error (in rad)
-WGRF = 10  # weight of mean squared GRF tracking error (in Newtons)
-WMAR = 100  # weight of mean squared marker tracking error (in meters)
+WANG = 1000.0  # weight of mean squared angle tracking error (in rad)
+WGRF = 1.0  # weight of mean squared GRF tracking error (in Newtons)
+WMAR = 0  # weight of mean squared marker tracking error (in meters)
 WREG = 1e-6  # weight of mean squared time derivatives
 WTOR = 1000.0  # weight of the mean squared torque (in kNm) objective
 
@@ -94,10 +94,11 @@ for i in range(9):
 
 # Markers are in units meters, so no scaling applied
 if WMAR != 0:
-    marker_coords, marker_eqs, marker_labels = generate_marker_equations(syms)
+    marker_syms, marker_eqs, marker_labels = generate_marker_equations(syms)
     eom = eom.col_join(sm.Matrix(marker_eqs))
     mar_data = marker_df[marker_labels].values.T.flatten()
 
+# Ground reaction forces are in units XXXX
 if WGRF != 0:
     grf_syms, grf_eqs, grf_labels = generate_grf_equations(syms)
     eom = eom.col_join(grf_eqs)
@@ -202,7 +203,7 @@ instance_constraints = (
 
 # When tracking markers, simulated marker trajectories must be periodic too
 if WMAR != 0:
-    for (lx, ly, rx, ry) in itertools.zip_longest(*[iter(marker_coords)]*4):
+    for (lx, ly, rx, ry) in itertools.zip_longest(*[iter(marker_syms)]*4):
         # group per marker: (ank_lx(t), ank_ly(t), ank_rx(t), ank_ry(t))
         con = (
             lx.func(0*h) - rx.func(duration),
@@ -251,7 +252,7 @@ def obj(prob, free, obj_show=False):
     # minimize mean marker tracking error
     if WMAR != 0:
         # vals -> shape(num_markers*(num_nodes - 1), 1)
-        mar_vals = extract_values(prob, free, *marker_coords, slice=(0, -1))
+        mar_vals = extract_values(prob, free, *marker_syms, slice=(0, -1))
         f_mar = WMAR*np.sum((mar_vals - mar_data)**2)/len(mar_vals)
         f_tot += f_mar
 
@@ -299,10 +300,10 @@ def obj_grad(prob, free):
         fill_free(prob, grad, reg_grad, *reg_syms, slice=(1, None), add=True)
 
     if WMAR != 0:
-        mar_vals = extract_values(prob, free, *marker_coords, slice=(0, -1))
+        mar_vals = extract_values(prob, free, *marker_syms, slice=(0, -1))
         fill_free(prob, grad,
                   2.0*WMAR*(mar_vals - mar_data)/len(mar_vals),
-                  *marker_coords, slice=(0, -1))
+                  *marker_syms, slice=(0, -1))
 
     if WGRF != 0:
         grf_vals = extract_values(prob, free, *grf_syms, slice=(0, -1))
@@ -370,7 +371,7 @@ initial_guess = tile_standing(standing_sol, NUM_NODES, num_angles, num_states)
 if WMAR != 0:
     # TODO : The marker positions could be calculated from the generalized
     # coordinates.
-    mar_traj = np.zeros((len(marker_coords), NUM_NODES))
+    mar_traj = np.zeros((len(marker_syms), NUM_NODES))
     initial_guess = np.concatenate((initial_guess, mar_traj))
 if WGRF != 0:
     grf_traj = np.zeros((len(grf_syms), NUM_NODES))
@@ -430,6 +431,7 @@ dat[:, 1] = -dat[:, 1]
 tor[:, [0, 2]] = -tor[:, [0, 2]]
 
 # Generate plots and animations
+tor_meas, grf_sol, grf_meas = None, None, None
 if WMAR != 0:
     # TODO : Extract the measured joint torques from the Winter's data also.
     tor_cols = [
@@ -446,12 +448,23 @@ if WMAR != 0:
                           tor_meas[1, 0:3]))
     tor_meas[:, 0] = -tor_meas[:, 0]  # hip
     tor_meas[:, 1] = -tor_meas[:, 1]  # knee
-    plot_joint_comparison(t, ang, tor, dat, torques_meas=tor_meas)
-else:
-    plot_joint_comparison(t, ang, tor, dat)
+
+if WGRF != 0:
+    # Frx(t), Fry(t), Flx(t), Fly(t)
+    # N-1 x 4
+    grf_sol = extract_values(prob, solution, *grf_syms,
+                             slice=(0, -1)).reshape(len(grf_syms),
+                                                    NUM_NODES-1).transpose()
+    grf_sol = np.vstack((grf_sol[:, 0:2], grf_sol[:, 2:4], grf_sol[1, 0:2]))
+    grf_meas = kinetic_df[grf_labels].values
+    grf_meas = np.vstack((grf_meas[:, 0:2], grf_meas[:, 2:4], grf_meas[1,
+                                                                       0:2]))
+
+plot_joint_comparison(t, ang, tor, dat, torques_meas=tor_meas, grf=grf_sol,
+                      grf_meas=grf_meas)
 
 if WMAR != 0:
-    plot_marker_comparison(marker_coords, marker_labels, marker_df, prob,
+    plot_marker_comparison(marker_syms, marker_labels, marker_df, prob,
                            solution)
 
 plt.show()
