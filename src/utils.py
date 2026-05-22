@@ -192,19 +192,15 @@ def animate(symbolics, xs, rs, h, speed, times, par_map, stiffness_exp):
 
     # show ground reaction force vectors at the heels and toes, scaled to
     # visually reasonable length
-    v = symbolics.specifieds[-1]
-    scene.add_vector(contact_force(rfoot.toe, ground, origin, v,
-                                   stiffness_exp=stiffness_exp)/600.0,
-                     rfoot.toe, color="tab:blue")
-    scene.add_vector(contact_force(rfoot.heel, ground, origin, v,
-                                   stiffness_exp=stiffness_exp)/600.0,
-                     rfoot.heel, color="tab:blue")
-    scene.add_vector(contact_force(lfoot.toe, ground, origin, v,
-                                   stiffness_exp=stiffness_exp)/600.0,
-                     lfoot.toe, color="tab:blue")
-    scene.add_vector(contact_force(lfoot.heel, ground, origin, v,
-                                   stiffness_exp=stiffness_exp)/600.0,
-                     lfoot.heel, color="tab:blue")
+    grf = symbolics.ground_reaction_forces
+    scene.add_vector(grf['Right Foot toe']/600.0, rfoot.toe,
+                     color="tab:blue")
+    scene.add_vector(grf['Right Foot heel']/600.0, rfoot.heel,
+                     color="tab:blue")
+    scene.add_vector(grf['Left Foot toe']/600.0, lfoot.toe,
+                     color="tab:blue")
+    scene.add_vector(grf['Left Foot heel']/600.0, lfoot.heel,
+                     color="tab:blue")
 
     scene.lambdify_system(symbolics.states + symbolics.specifieds +
                           symbolics.constants)
@@ -230,18 +226,12 @@ def animate(symbolics, xs, rs, h, speed, times, par_map, stiffness_exp):
 
     eval_rforce = sm.lambdify(
         symbolics.states + symbolics.specifieds + symbolics.constants,
-        (contact_force(rfoot.toe, ground, origin, v,
-                       stiffness_exp=stiffness_exp) +
-         contact_force(rfoot.heel, ground, origin, v,
-                       stiffness_exp=stiffness_exp)).to_matrix(ground),
+        (grf['Right Foot heel'] + grf['Right Foot toe']).to_matrix(ground),
         cse=True)
 
     eval_lforce = sm.lambdify(
         symbolics.states + symbolics.specifieds + symbolics.constants,
-        (contact_force(lfoot.toe, ground, origin, v,
-                       stiffness_exp=stiffness_exp) +
-         contact_force(lfoot.heel, ground, origin, v,
-                       stiffness_exp=stiffness_exp)).to_matrix(ground),
+        (grf['Left Foot heel'] + grf['Left Foot toe']).to_matrix(ground),
         cse=True)
 
     rforces = np.array([eval_rforce(*gci).squeeze() for gci in gait_cycle.T])
