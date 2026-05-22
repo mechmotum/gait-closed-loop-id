@@ -59,7 +59,7 @@ SUBJECT_MASS = 70.0  # kg of subject from trial 20, TODO: extract from metadata
 USE_WINTER_DATA = False  # if we want to track Winter's gait data
 # Remove parts of the objective by setting to integer 0.
 WANG = 1000.0  # weight of mean squared angle tracking error (in rad)
-WGRF = 0.005  # weight of mean squared GRF tracking error (in Newtons)
+WGRF = 0  # weight of mean squared GRF tracking error (in Newtons)
 WMAR = 0  # weight of mean squared marker tracking error (in meters)
 WREG = 1e-6  # weight of mean squared time derivatives
 WTOR = 1000.0  # weight of the mean squared torque (in kNm) objective
@@ -118,7 +118,6 @@ if WGRF != 0:
 qax, qay, qa, qb, qc, qd, qe, qf, qg = syms.coordinates
 uax, uay, ua, ub, uc, ud, ue, uf, ug = syms.speeds
 Tb, Tc, Td, Te, Tf, Tg, v = syms.specifieds
-Frx, Fry, Flx, Fly = grf_syms
 reg_syms = syms.states + syms.joint_torques
 num_states = len(syms.states)
 
@@ -219,6 +218,7 @@ if WMAR != 0:
 
 # When tracking ground reaction forces, simulation must be periodic too
 if WGRF != 0:
+    Frx, Fry, Flx, Fly = grf_syms
     con = (
         Flx.func(0*h) - Frx.func(duration),
         Frx.func(0*h) - Flx.func(duration),
@@ -463,6 +463,7 @@ if WMAR != 0:
     tor_meas[:, 1] = -tor_meas[:, 1]  # knee
 
 if WGRF != 0:
+    # TODO : Extract the GRFs from the Winter's data also.
     # Frx(t), Fry(t), Flx(t), Fly(t)
     # N-1 x 4
     grf_sol = extract_values(prob, solution, *grf_syms,
@@ -470,8 +471,7 @@ if WGRF != 0:
                                                     NUM_NODES-1).transpose()
     grf_sol = np.vstack((grf_sol[:, 0:2], grf_sol[:, 2:4], grf_sol[1, 0:2]))
     grf_meas = kinetic_df[grf_labels].values
-    grf_meas = np.vstack((grf_meas[:, 0:2], grf_meas[:, 2:4], grf_meas[1,
-                                                                       0:2]))
+    grf_meas = np.vstack((grf_meas[:, 0:2], grf_meas[:, 2:4], grf_meas[1, 0:2]))
 
 plot_joint_comparison(t, ang, tor, dat, torques_meas=tor_meas, grf=grf_sol,
                       grf_meas=grf_meas)
