@@ -1048,15 +1048,31 @@ if __name__ == "__main__":
     winter_df = load_winter_data_frame(num_nodes=num_nodes, half_cycle=True)
     winter_df.plot(x='Time', marker='.', subplots=True, layout=(-1, 2))
 
+    _, _, num_ang, ang_data = load_winter_data(num_nodes)
+    ang_data = ang_data.reshape(num_ang, num_nodes - 1).T
+    ang_df_orig = pd.DataFrame(ang_data, columns=[
+        'Right.Hip.Flexion.Angle',
+        'Right.Knee.Flexion.Angle',
+        'Right.Ankle.PlantarFlexion.Angle',
+        'Left.Hip.Flexion.Angle',
+        'Left.Knee.Flexion.Angle',
+        'Left.Ankle.PlantarFlexion.Angle'
+    ])
     fig, axes = plt.subplots(len(winter_df.columns) // 2 +
                              len(winter_df.columns) % 2, 2, sharex=True,
                                  layout='constrained')
     for ax, col in zip(axes.flatten(), winter_df.columns):
-        ax.plot(winter_df.index, winter_df[col], marker='.', label=col)
+        ax.plot(winter_df.index, winter_df[col], marker='.',
+                label='Meas: ' + col)
         if col in kinetic_df:
-            ax.plot(kinetic_df.index, kinetic_df[col], marker='.')
+            ax.plot(kinetic_df.index, kinetic_df[col], marker='.',
+                    label='Winter: ' + col)
         if col in ang_df:
-            ax.plot(kinetic_df.index, np.rad2deg(ang_df[col]), marker='.')
-        ax.legend()
+            ax.plot(ang_df.index, np.rad2deg(ang_df[col]), marker='.',
+                    label='Winter: ' + col)
+        if col in ang_df_orig:
+            ax.plot(ang_df_orig.index, np.rad2deg(ang_df_orig[col]),
+                    marker='.', label='Winter (original): ' + col)
+        ax.legend(fontsize=6)
 
     plt.show()
