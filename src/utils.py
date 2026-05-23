@@ -445,15 +445,35 @@ def load_winter_data_frame(num_nodes=None, half_cycle=False):
     ==========
     num_nodes : integer, optional
         If provided, data will be interpolated at the number of linearly spaced
-        time nodes.
+        time nodes - 1.
     half_cycle : boolean, optional
         If true, returns the first half of the gait cycle 0% to 50%. Else the
         full gait cycle 0% to 100% is returned.
 
     Returns
     =======
-    df : DataFrame, shape(num_nodes, ?)
-        Index is the sample number.
+    df : DataFrame, shape(num_nodes - 1, 19)
+        Index is range(num_nodes - 1). Column names are:
+
+        1. 'Percent Gait Cycle'
+        2. 'Time'
+        3. 'Speed'
+        4. 'FP2.ForY' (right)
+        5. 'FP1.ForY' (left)
+        6. 'FP2.ForX' (right)
+        7. 'FP1.ForX' (left)
+        8. 'Right.Hip.Flexion.Angle'
+        9. 'Left.Hip.Flexion.Angle'
+        10. 'Right.Knee.Flexion.Angle'
+        11. 'Left.Knee.Flexion.Angle'
+        12. 'Right.Ankle.PlantarFlexion.Angle'
+        13. 'Left.Ankle.PlantarFlexion.Angle'
+        14. 'Right.Hip.Flexion.Moment'
+        15. 'Left.Hip.Flexion.Moment'
+        16. 'Right.Knee.Flexion.Moment'
+        17. 'Left.Knee.Flexion.Moment'
+        18. 'Right.Ankle.PlantarFlexion.Moment'
+        19. 'Left.Ankle.PlantarFlexion.Moment'
 
     """
     winter_moore_map = {
@@ -464,7 +484,10 @@ def load_winter_data_frame(num_nodes=None, half_cycle=False):
         # negate
         'knee angle': ('Right.Knee.Flexion.Angle', -1.0, 0.0),
         'ankle angle': ('Right.Ankle.PlantarFlexion.Angle', 1.0, 0.0),
-        # negate: double check this one
+        # TODO : It is not so clear if the hip flexion moment should be
+        # negated. The hip moments in our data set do not look precisely like
+        # Winter's.
+        # negate
         'hip moment': ('Right.Hip.Flexion.Moment', -1.0, 0.0),
         # negate
         'knee moment': ('Right.Knee.Flexion.Moment', -1.0, 0.0),
@@ -504,10 +527,21 @@ def load_winter_data_frame(num_nodes=None, half_cycle=False):
     for k, v in winter_moore_map.items():
         name, sign, offset = v
         df[name] = sign*df[k] + offset
+        # The Winter data has 51 data points from 0% to 100% gait cycle for
+        # right leg starting at heel contact.
+        # sample 1 = 0%, right heel contact
+        # sample 26 = 50%
+        # sample 51 = 100%, right heel contact
+        # right   | left
+        # 0% 1    | 26
+        # 50% 26  | 51
+        #         | 2
+        # 100% 51 | 26
+        # skip point 1 in let and repeat 26, is that correct?
         # TODO : Is this the correct shift, i.e. moving the 50% sample to the
         # 0%? Ton does (ang[:26, :], ang[25:, :]) below, which adds one point
         # twice.
-        left = np.hstack((df[k][25:], df[k][:25]))
+        left = np.hstack((df[k][25:], df[k][1:26]))
         lname = name.replace('Right', 'Left').replace('FP2', 'FP1')
         df[lname] = sign*left + offset
 
@@ -517,14 +551,17 @@ def load_winter_data_frame(num_nodes=None, half_cycle=False):
         del df[k]
 
     if half_cycle:
+        # returns Winter's sample 1-26 inclusive
         df = df.iloc[:26, :]
 
     if num_nodes is not None:
         t0, tf = df['Time'].values[[0, -1]]
-        new_time = np.linspace(t0, tf, num=num_nodes)
+        # TODO : In load_winter_data and load_sample_data we do num_nodes - 1,
+        # why? If you ask for X nodes why wdo we return one less?
+        new_time = np.linspace(t0, tf, num=num_nodes - 1)
         df = pd.DataFrame(interp1d(df['Time'], df.values, axis=0)(new_time),
                           columns=df.columns,
-                          index=np.arange(len(new_time)) + 1)
+                          index=np.arange(len(new_time)))
 
     return df
 
@@ -562,7 +599,6 @@ def load_winter_data(num_nodes):
     # convert full gait cycle (one side) into a half gait cycle for both sides
     # and resample to num_nodes
     ang = np.concatenate((ang[:26, :], ang[25:, :]), axis=1)
-    print(ang)
     rows, num_angles = ang.shape
     ang_resampled = np.zeros((num_nodes - 1, num_angles))
     t = np.arange(0, rows)/(rows - 1)  # gait phase from data
@@ -1006,23 +1042,21 @@ if __name__ == "__main__":
 
     num_nodes = 37
     (duration, walking_speed, num_angles, ang_data, marker_df,
-     kinetic_df, ang_df) = load_sample_data(num_nodes, gait_cycle_number=45)
+     kinetic_df, ang_df) = load_sample_data(num_nodes, gait_cycle_number=87)
     kinetic_df.plot(marker='.', subplots=True)
 
     winter_df = load_winter_data_frame(num_nodes=num_nodes, half_cycle=True)
     winter_df.plot(x='Time', marker='.', subplots=True, layout=(-1, 2))
 
-    fig, axes = plt.subplots(len(winter_df.columns), 1, sharex=True,
-                             layout='constrained')
-    for ax, col in zip(axes, winter_df.columns):
-        ax.plot(winter_df[col], marker='.', label=col)
+    fig, axes = plt.subplots(len(winter_df.columns) // 2 +
+                             len(winter_df.columns) % 2, 2, sharex=True,
+                                 layout='constrained')
+    for ax, col in zip(axes.flatten(), winter_df.columns):
+        ax.plot(winter_df.index, winter_df[col], marker='.', label=col)
         if col in kinetic_df:
-            ax.plot(kinetic_df[col], marker='.')
+            ax.plot(kinetic_df.index, kinetic_df[col], marker='.')
         if col in ang_df:
-            ax.plot(np.rad2deg(ang_df[col]), marker='.')
+            ax.plot(kinetic_df.index, np.rad2deg(ang_df[col]), marker='.')
         ax.legend()
-
-
-    load_winter_data(num_nodes)
 
     plt.show()
