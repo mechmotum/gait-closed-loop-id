@@ -1063,13 +1063,13 @@ if __name__ == "__main__":
                                  layout='constrained')
     for ax, col in zip(axes.flatten(), winter_df.columns):
         ax.plot(winter_df.index, winter_df[col], marker='.',
-                label='Meas: ' + col)
+                label='Winter (new): ' + col)
         if col in kinetic_df:
             ax.plot(kinetic_df.index, kinetic_df[col], marker='.',
-                    label='Winter: ' + col)
+                    label='Measured: ' + col)
         if col in ang_df:
             ax.plot(ang_df.index, np.rad2deg(ang_df[col]), marker='.',
-                    label='Winter: ' + col)
+                    label='Measured: ' + col)
         if col in ang_df_orig:
             ax.plot(ang_df_orig.index, np.rad2deg(ang_df_orig[col]),
                     marker='.', label='Winter (original): ' + col)
