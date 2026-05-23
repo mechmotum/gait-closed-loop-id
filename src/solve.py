@@ -71,7 +71,7 @@ if USE_WINTER_DATA:
 else:
     # load a gait cycle from our data (trial 20)
     (duration, walking_speed, num_angles, ang_data,
-     marker_df, kinetic_df) = load_sample_data(
+     marker_df, kinetic_df, ang_df) = load_sample_data(
          NUM_NODES, gait_cycle_number=GAIT_CYCLE_NUM)
 
 # Define the fixed time step in the simulation

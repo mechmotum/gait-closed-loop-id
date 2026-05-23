@@ -461,10 +461,10 @@ def load_winter_data_frame(num_nodes=None, half_cycle=False):
         'vertical GRF': ('FP2.ForY', 1.0, 0.0),
         'horizontal GRF': ('FP2.ForX', 1.0, 0.0),
         'hip angle': ('Right.Hip.Flexion.Angle', 1.0, 0.0),
-        'knee angle': ('Right.Knee.Flexion.Angle', 1.0, 0.0),
-        # negate and substract 90 deg from Winter to get mine
-        'ankle angle': ('Right.Ankle.PlantarFlexion.Angle', -1.0, -90.0),
         # negate
+        'knee angle': ('Right.Knee.Flexion.Angle', -1.0, 0.0),
+        'ankle angle': ('Right.Ankle.PlantarFlexion.Angle', 1.0, 0.0),
+        # negate: double check this one
         'hip moment': ('Right.Hip.Flexion.Moment', -1.0, 0.0),
         # negate
         'knee moment': ('Right.Knee.Flexion.Moment', -1.0, 0.0),
@@ -670,9 +670,10 @@ def load_sample_data(num_nodes, gait_cycle_number=100):
 
     mark_df = pd.DataFrame(dict(zip(markers, interp_mark_arr.T)))
     kinetic_df = pd.DataFrame(dict(zip(kinetics, interp_kinetic_arr.T)))
+    ang_df = pd.DataFrame(dict(zip(angles, interp_ang_arr.T)))
 
     return (duration, walking_speed, len(angles), interp_ang_arr.T.flatten(),
-            mark_df, kinetic_df)
+            mark_df, kinetic_df, ang_df)
 
 
 def plot_joint_comparison(t, angles, torques, angles_meas, torques_meas=None,
@@ -1005,11 +1006,22 @@ if __name__ == "__main__":
 
     num_nodes = 37
     (duration, walking_speed, num_angles, ang_data, marker_df,
-     kinetic_df) = load_sample_data(num_nodes, gait_cycle_number=45)
+     kinetic_df, ang_df) = load_sample_data(num_nodes, gait_cycle_number=45)
     kinetic_df.plot(marker='.', subplots=True)
 
     winter_df = load_winter_data_frame(num_nodes=num_nodes, half_cycle=True)
     winter_df.plot(x='Time', marker='.', subplots=True, layout=(-1, 2))
+
+    fig, axes = plt.subplots(len(winter_df.columns), 1, sharex=True,
+                             layout='constrained')
+    for ax, col in zip(axes, winter_df.columns):
+        ax.plot(winter_df[col], marker='.', label=col)
+        if col in kinetic_df:
+            ax.plot(kinetic_df[col], marker='.')
+        if col in ang_df:
+            ax.plot(np.rad2deg(ang_df[col]), marker='.')
+        ax.legend()
+
 
     load_winter_data(num_nodes)
 
