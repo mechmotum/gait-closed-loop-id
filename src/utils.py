@@ -538,7 +538,10 @@ def load_sample_data(num_nodes, gait_cycle_number=100):
     master_df = pd.read_csv(GAITDATAPATH)
     df = extract_gait_cycle(master_df, gait_cycle_number)
 
-    df = df.iloc[:11, :]  # take 0% to 50%
+    num_samples = len(df)
+    half_samples = num_samples // 2 + num_samples % 2
+
+    df = df.iloc[:half_samples, :]  # take 0% to 50%
 
     time = df['Original Time'].values
     first_time = time[0]
