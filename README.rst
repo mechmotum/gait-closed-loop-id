@@ -50,7 +50,8 @@ There is sample data in the ``data/`` directory for tracking but you can also
 use data we collected by downloading these files:
 
 - `sample calibration pose <https://drive.google.com/file/d/16BkXcR5F-7DsJNoXf9tjy5ujyN3pDMl0/view?usp=sharing>`_
-- `sample gait cycles during perturbations <https://drive.google.com/file/d/1rsBbDih0fqa8v14fmY7__Ss01eaY7Ol9/view?usp=sharing>`_ [16Mb]
+- `sample gait cycles during perturbations ~20 Hz <https://drive.google.com/file/d/1rsBbDih0fqa8v14fmY7__Ss01eaY7Ol9/view?usp=sharing>`_ [16Mb]
+- `sample gait cycles during perturbations ~100 Hz <https://drive.google.com/file/d/1qDXhxZxlyE0HzeXcd2G1ZHlwjGkVwXj1/view?usp=sharing`_ [75Mb]
 
 unzipping them and placing the two CSV files into the ``data/`` directory.
 
