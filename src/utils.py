@@ -474,6 +474,135 @@ def plot_points(df):
     return ax
 
 
+def load_winter_data_frame(num_nodes=None, half_cycle=False):
+    """Returns Winter's normative gait data transformed to match naming
+    conventions of our measurement data.
+
+    Parameters
+    ==========
+    num_nodes : integer, optional
+        If provided, data will be interpolated at the number of linearly spaced
+        time nodes - 1.
+    half_cycle : boolean, optional
+        If true, returns the first half of the gait cycle 0% to 50%. Else the
+        full gait cycle 0% to 100% is returned.
+
+    Returns
+    =======
+    df : DataFrame, shape(num_nodes - 1, 19)
+        Index is range(num_nodes - 1). Column names are:
+
+        1. 'Percent Gait Cycle'
+        2. 'Time'
+        3. 'Speed'
+        4. 'FP2.ForY' (right)
+        5. 'FP1.ForY' (left)
+        6. 'FP2.ForX' (right)
+        7. 'FP1.ForX' (left)
+        8. 'Right.Hip.Flexion.Angle'
+        9. 'Left.Hip.Flexion.Angle'
+        10. 'Right.Knee.Flexion.Angle'
+        11. 'Left.Knee.Flexion.Angle'
+        12. 'Right.Ankle.PlantarFlexion.Angle'
+        13. 'Left.Ankle.PlantarFlexion.Angle'
+        14. 'Right.Hip.Flexion.Moment'
+        15. 'Left.Hip.Flexion.Moment'
+        16. 'Right.Knee.Flexion.Moment'
+        17. 'Left.Knee.Flexion.Moment'
+        18. 'Right.Ankle.PlantarFlexion.Moment'
+        19. 'Left.Ankle.PlantarFlexion.Moment'
+
+    """
+    winter_moore_map = {
+        # FP2 is the right force plate
+        'vertical GRF': ('FP2.ForY', 1.0, 0.0),
+        'horizontal GRF': ('FP2.ForX', 1.0, 0.0),
+        'hip angle': ('Right.Hip.Flexion.Angle', 1.0, 0.0),
+        # negate
+        'knee angle': ('Right.Knee.Flexion.Angle', -1.0, 0.0),
+        'ankle angle': ('Right.Ankle.PlantarFlexion.Angle', 1.0, 0.0),
+        # TODO : It is not so clear if the hip flexion moment should be
+        # negated. The hip moments in our data set do not look precisely like
+        # Winter's.
+        # negate
+        'hip moment': ('Right.Hip.Flexion.Moment', -1.0, 0.0),
+        # negate
+        'knee moment': ('Right.Knee.Flexion.Moment', -1.0, 0.0),
+        'ankle moment': ('Right.Ankle.PlantarFlexion.Moment', 1.0, 0.0),
+    }
+
+    subject_mass = 75.0  # kg (from Winter's book)
+
+    # notes on Winter_normal.csv:
+    # rows 0, 1, 2, 3 at not tabular
+    # last row is empty
+    # angles are in degrees
+    # forces and torques are normalized by the mass of the person
+    fname = os.path.join(DATADIR, 'Winter_normal.csv')
+
+    # extract gait cycle duration and speed
+    data = np.genfromtxt(fname, delimiter=',')
+    duration = data[1, 2]
+    walking_speed = data[2, 2]
+
+    df = pd.read_csv(fname, header=4, skiprows=[5], index_col='sample')
+    # last row is empty
+    df.drop(index=df.index[-1], inplace=True)
+    # two empty columns
+    df.drop(columns=['Unnamed: 2', 'Unnamed: 3'], inplace=True)
+    df.index = df.index.astype(int)
+    # remove whitespace
+    df.columns = df.columns.str.strip()
+    df['Time'] = np.linspace(0.0, duration, num=len(df))
+    df['Speed'] = walking_speed
+    if subject_mass is not None:
+        kinetics = ['horizontal GRF', 'vertical GRF', 'hip moment',
+                    'knee moment', 'ankle moment']
+        for kinetic in kinetics:
+            df[kinetic] = df[kinetic]*subject_mass
+
+    for k, v in winter_moore_map.items():
+        name, sign, offset = v
+        df[name] = sign*df[k] + offset
+        # The Winter data has 51 data points from 0% to 100% gait cycle for
+        # right leg starting at heel contact.
+        # sample 1 = 0%, right heel contact
+        # sample 26 = 50%
+        # sample 51 = 100%, right heel contact
+        # right   | left
+        # 0% 1    | 26
+        # 50% 26  | 51
+        #         | 2
+        # 100% 51 | 26
+        # skip point 1 in let and repeat 26, is that correct?
+        # TODO : Is this the correct shift, i.e. moving the 50% sample to the
+        # 0%? Ton does (ang[:26, :], ang[25:, :]) below, which adds one point
+        # twice.
+        left = np.hstack((df[k][25:], df[k][1:26]))
+        lname = name.replace('Right', 'Left').replace('FP2', 'FP1')
+        df[lname] = sign*left + offset
+
+    df.rename(columns={'%gait cycle': 'Percent Gait Cycle'}, inplace=True)
+
+    for k in winter_moore_map.keys():
+        del df[k]
+
+    if half_cycle:
+        # returns Winter's sample 1-26 inclusive
+        df = df.iloc[:26, :]
+
+    if num_nodes is not None:
+        t0, tf = df['Time'].values[[0, -1]]
+        # TODO : In load_winter_data and load_sample_data we do num_nodes - 1,
+        # why? If you ask for X nodes why wdo we return one less?
+        new_time = np.linspace(t0, tf, num=num_nodes - 1)
+        df = pd.DataFrame(interp1d(df['Time'], df.values, axis=0)(new_time),
+                          columns=df.columns,
+                          index=np.arange(len(new_time)))
+
+    return df
+
+
 def load_winter_data(num_nodes):
     """Returns interpolated normative gait data from Winter's book.
 
@@ -491,8 +620,7 @@ def load_winter_data(num_nodes):
         ankleN, hip1, ..., hipN, knee1, ..., kneeN, ankle1, ..., ankleN]
 
     """
-    fname = os.path.join(os.path.dirname(__file__),
-                         os.path.join('..', 'data', 'Winter_normal.csv'))
+    fname = os.path.join(DATADIR, 'Winter_normal.csv')
 
     data = np.genfromtxt(fname, delimiter=',')
 
@@ -618,9 +746,10 @@ def load_sample_data(num_nodes, gait_cycle_number=100):
 
     mark_df = pd.DataFrame(dict(zip(markers, interp_mark_arr.T)))
     kinetic_df = pd.DataFrame(dict(zip(kinetics, interp_kinetic_arr.T)))
+    ang_df = pd.DataFrame(dict(zip(angles, interp_ang_arr.T)))
 
     return (duration, walking_speed, len(angles), interp_ang_arr.T.flatten(),
-            mark_df, kinetic_df)
+            mark_df, kinetic_df, ang_df)
 
 
 def plot_joint_comparison(t, angles, torques, angles_meas, torques_meas=None,
@@ -950,4 +1079,40 @@ if __name__ == "__main__":
     master_df = pd.read_csv(GAITDATAPATH)
     df = extract_gait_cycle(master_df, 100)
     plot_points(df)
+
+    num_nodes = 37
+    (duration, walking_speed, num_angles, ang_data, marker_df,
+     kinetic_df, ang_df) = load_sample_data(num_nodes, gait_cycle_number=87)
+    kinetic_df.plot(marker='.', subplots=True)
+
+    winter_df = load_winter_data_frame(num_nodes=num_nodes, half_cycle=True)
+    winter_df.plot(x='Time', marker='.', subplots=True, layout=(-1, 2))
+
+    _, _, num_ang, ang_data = load_winter_data(num_nodes)
+    ang_data = ang_data.reshape(num_ang, num_nodes - 1).T
+    ang_df_orig = pd.DataFrame(ang_data, columns=[
+        'Right.Hip.Flexion.Angle',
+        'Right.Knee.Flexion.Angle',
+        'Right.Ankle.PlantarFlexion.Angle',
+        'Left.Hip.Flexion.Angle',
+        'Left.Knee.Flexion.Angle',
+        'Left.Ankle.PlantarFlexion.Angle'
+    ])
+    fig, axes = plt.subplots(len(winter_df.columns) // 2 +
+                             len(winter_df.columns) % 2, 2, sharex=True,
+                                 layout='constrained')
+    for ax, col in zip(axes.flatten(), winter_df.columns):
+        ax.plot(winter_df.index, winter_df[col], marker='.',
+                label='Winter (new): ' + col)
+        if col in kinetic_df:
+            ax.plot(kinetic_df.index, kinetic_df[col], marker='.',
+                    label='Measured: ' + col)
+        if col in ang_df:
+            ax.plot(ang_df.index, np.rad2deg(ang_df[col]), marker='.',
+                    label='Measured: ' + col)
+        if col in ang_df_orig:
+            ax.plot(ang_df_orig.index, np.rad2deg(ang_df_orig[col]),
+                    marker='.', label='Winter (original): ' + col)
+        ax.legend(fontsize=6)
+
     plt.show()
