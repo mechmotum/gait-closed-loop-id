@@ -30,6 +30,7 @@ from utils import (
     extract_values,
     extract_values_diff,
     fill_free,
+    generate_grf_equations,
     generate_marker_equations,
     load_sample_data,
     load_winter_data,
@@ -57,8 +58,9 @@ STIFFNESS_EXP = 2  # exponent of the contact stiffness force
 SUBJECT_MASS = 70.0  # kg of subject from trial 20, TODO: extract from metadata
 USE_WINTER_DATA = False  # if we want to track Winter's gait data
 # Remove parts of the objective by setting to integer 0.
-WANG = 1000  # weight of mean squared angle tracking error (in rad)
-WMAR = 0.0  # weight of mean squared marker tracking error (in meters)
+WANG = 1000.0  # weight of mean squared angle tracking error (in rad)
+WGRF = 0  # weight of mean squared GRF tracking error (in Newtons)
+WMAR = 0  # weight of mean squared marker tracking error (in meters)
 WREG = 1e-6  # weight of mean squared time derivatives
 WTOR = 1000.0  # weight of the mean squared torque (in kNm) objective
 
@@ -79,9 +81,12 @@ h = duration/(NUM_NODES - 1)
 
 # Derive the equations of motion
 logger.info('Deriving the equations of motion.')
-syms = derive_equations_of_motion(prevent_ground_penetration=False,
-                                  treadmill=True, hand_of_god=False,
-                                  stiffness_exp=STIFFNESS_EXP)
+syms = derive_equations_of_motion(
+    prevent_ground_penetration=False,
+    treadmill=True,
+    hand_of_god=False,
+    stiffness_exp=STIFFNESS_EXP,
+)
 eom = syms.equations_of_motion
 logger.info('Number of operations in eom: {}'.format(sm.count_ops(eom)))
 
@@ -92,9 +97,15 @@ for i in range(9):
 
 # Markers are in units meters, so no scaling applied
 if WMAR != 0:
-    marker_coords, marker_eqs, marker_labels = generate_marker_equations(syms)
+    marker_syms, marker_eqs, marker_labels = generate_marker_equations(syms)
     eom = eom.col_join(sm.Matrix(marker_eqs))
     mar_data = marker_df[marker_labels].values.T.flatten()
+
+# Ground reaction forces are in units Newtons
+if WGRF != 0:
+    grf_syms, grf_eqs, grf_labels = generate_grf_equations(syms)
+    eom = eom.col_join(grf_eqs)
+    grf_data = kinetic_df[grf_labels].values.T.flatten()
 
 # The generalized coordinates are the hip lateral position qax and veritcal
 # position qay, the trunk angle with respect to vertical qa and the relative
@@ -159,7 +170,7 @@ bounds.update({k: (-np.deg2rad(400.0), np.deg2rad(400.0))
 # all joint torques
 bounds.update({k: (-600.0, 600.0)
                for k in [Tb, Tc, Td, Te, Tf, Tg]})
-# TODO : Add bounds for marker trajectories.
+# TODO : Add bounds for marker trajectories and ground reaction forces.
 
 # To enforce a half period, set the right leg's angles at the initial time to
 # be equal to the left leg's angles at the final time and vice versa. The same
@@ -195,7 +206,7 @@ instance_constraints = (
 
 # When tracking markers, simulated marker trajectories must be periodic too
 if WMAR != 0:
-    for (lx, ly, rx, ry) in itertools.zip_longest(*[iter(marker_coords)]*4):
+    for (lx, ly, rx, ry) in itertools.zip_longest(*[iter(marker_syms)]*4):
         # group per marker: (ank_lx(t), ank_ly(t), ank_rx(t), ank_ry(t))
         con = (
             lx.func(0*h) - rx.func(duration),
@@ -205,6 +216,18 @@ if WMAR != 0:
         )
         instance_constraints += con
 
+# When tracking ground reaction forces, simulation must be periodic too
+if WGRF != 0:
+    Frx, Fry, Flx, Fly = grf_syms
+    con = (
+        Flx.func(0*h) - Frx.func(duration),
+        Frx.func(0*h) - Flx.func(duration),
+        Fly.func(0*h) - Fry.func(duration),
+        Fry.func(0*h) - Fly.func(duration),
+    )
+    instance_constraints += con
+
+
 def obj(prob, free, obj_show=False):
     """
     Objective function::
@@ -213,6 +236,7 @@ def obj(prob, free, obj_show=False):
           + WANG*mean(joint_angle_error**2)
           + WREG*mean((dx/dt)**2)
           + WMAR*mean(marker_error**2)
+          + WGRF*mean(grf_error**2)
 
     The final node is excluded from all means. Due to symmetry and
     periodicity constraints, it is the mirror image of the first node,
@@ -225,12 +249,12 @@ def obj(prob, free, obj_show=False):
 
     f_tot = f_tor
 
+    # minimize mean angle tracking error
     if WANG != 0:
-        # minimize mean angle tracking error
         ang_vals = extract_values(prob, free, *syms.joint_angles,
                                   slice=(0, -1))
-        f_track = WANG*np.sum((ang_vals - ang_data)**2)/len(ang_vals)
-        f_tot += f_track
+        f_ang = WANG*np.sum((ang_vals - ang_data)**2)/len(ang_vals)
+        f_tot += f_ang
 
     # smooth all regularization trajectories
     if WREG != 0:
@@ -241,18 +265,26 @@ def obj(prob, free, obj_show=False):
     # minimize mean marker tracking error
     if WMAR != 0:
         # vals -> shape(num_markers*(num_nodes - 1), 1)
-        mar_vals = extract_values(prob, free, *marker_coords, slice=(0, -1))
+        mar_vals = extract_values(prob, free, *marker_syms, slice=(0, -1))
         f_mar = WMAR*np.sum((mar_vals - mar_data)**2)/len(mar_vals)
         f_tot += f_mar
+
+    # minimize mean ground reaction force tracking error
+    if WGRF != 0:
+        grf_vals = extract_values(prob, free, *grf_syms, slice=(0, -1))
+        f_grf = WGRF*np.sum((grf_vals - grf_data)**2)/len(grf_vals)
+        f_tot += f_grf
 
     if obj_show:
         msg = (f"   obj: {f_tot:.3f} = {f_tor:.3f}(torque)")
         if WREG != 0:
             msg += f" + {f_reg:.3f}(reg)"
         if WANG != 0:
-            msg += f" + {f_track:.3f}(angle)"
+            msg += f" + {f_ang:.3f}(angle)"
         if WMAR != 0:
             msg += f" + {f_mar:.3f}(marker)"
+        if WGRF != 0:
+            msg += f" + {f_grf:.3f}(grf)"
         print(msg)
 
     return f_tot
@@ -271,7 +303,6 @@ def obj_grad(prob, free):
         fill_free(prob, grad,
                   2.0*WANG*(ang_vals - ang_data)/len(ang_vals),
                   *syms.joint_angles, slice=(0, -1))
-
     if WREG != 0:
         # NOTE : The regularization should be added on top of the tor_vals and
         # ang_vals.
@@ -282,10 +313,16 @@ def obj_grad(prob, free):
         fill_free(prob, grad, reg_grad, *reg_syms, slice=(1, None), add=True)
 
     if WMAR != 0:
-        mar_vals = extract_values(prob, free, *marker_coords, slice=(0, -1))
+        mar_vals = extract_values(prob, free, *marker_syms, slice=(0, -1))
         fill_free(prob, grad,
                   2.0*WMAR*(mar_vals - mar_data)/len(mar_vals),
-                  *marker_coords, slice=(0, -1))
+                  *marker_syms, slice=(0, -1))
+
+    if WGRF != 0:
+        grf_vals = extract_values(prob, free, *grf_syms, slice=(0, -1))
+        fill_free(prob, grad,
+                  2.0*WGRF*(grf_vals - grf_data)/len(grf_vals),
+                  *grf_syms, slice=(0, -1))
 
     return grad
 
@@ -347,8 +384,11 @@ initial_guess = tile_standing(standing_sol, NUM_NODES, num_angles, num_states)
 if WMAR != 0:
     # TODO : The marker positions could be calculated from the generalized
     # coordinates.
-    mar_traj = np.zeros((len(marker_coords), NUM_NODES))
+    mar_traj = np.zeros((len(marker_syms), NUM_NODES))
     initial_guess = np.concatenate((initial_guess, mar_traj))
+if WGRF != 0:
+    grf_traj = np.zeros((len(grf_syms), NUM_NODES))
+    initial_guess = np.concatenate((initial_guess, grf_traj))
 initial_guess = initial_guess.flatten()  # make a single row vector
 if SEED:
     np.random.seed(SEED)  # this makes the result reproducible
@@ -404,20 +444,40 @@ dat[:, 1] = -dat[:, 1]
 tor[:, [0, 2]] = -tor[:, [0, 2]]
 
 # Generate plots and animations
+tor_meas, grf_sol, grf_meas = None, None, None
 if WMAR != 0:
     # TODO : Extract the measured joint torques from the Winter's data also.
-    tor_meas = kinetic_df.values
+    tor_cols = [
+        'Right.Hip.Flexion.Moment',
+        'Right.Knee.Flexion.Moment',
+        'Right.Ankle.PlantarFlexion.Moment',
+        'Left.Hip.Flexion.Moment',
+        'Left.Knee.Flexion.Moment',
+        'Left.Ankle.PlantarFlexion.Moment',
+    ]
+    tor_meas = kinetic_df[tor_cols].values
     tor_meas = np.vstack((tor_meas[:, 0:3],
                           tor_meas[:, 3:6],
                           tor_meas[1, 0:3]))
     tor_meas[:, 0] = -tor_meas[:, 0]  # hip
     tor_meas[:, 1] = -tor_meas[:, 1]  # knee
-    plot_joint_comparison(t, ang, tor, dat, torques_meas=tor_meas)
-else:
-    plot_joint_comparison(t, ang, tor, dat)
+
+if WGRF != 0:
+    # TODO : Extract the GRFs from the Winter's data also.
+    # Frx(t), Fry(t), Flx(t), Fly(t)
+    # N-1 x 4
+    grf_sol = extract_values(prob, solution, *grf_syms,
+                             slice=(0, -1)).reshape(len(grf_syms),
+                                                    NUM_NODES-1).transpose()
+    grf_sol = np.vstack((grf_sol[:, 0:2], grf_sol[:, 2:4], grf_sol[1, 0:2]))
+    grf_meas = kinetic_df[grf_labels].values
+    grf_meas = np.vstack((grf_meas[:, 0:2], grf_meas[:, 2:4], grf_meas[1, 0:2]))
+
+plot_joint_comparison(t, ang, tor, dat, torques_meas=tor_meas, grf=grf_sol,
+                      grf_meas=grf_meas)
 
 if WMAR != 0:
-    plot_marker_comparison(marker_coords, marker_labels, marker_df, prob,
+    plot_marker_comparison(marker_syms, marker_labels, marker_df, prob,
                            solution)
 
 plt.show()

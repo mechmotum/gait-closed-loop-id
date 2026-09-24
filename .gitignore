@@ -9,3 +9,8 @@ src/__pycache__/
 src/gait_codegen/
 src/human_gait.gif
 src/gait2d/
+*.mexw64
+*.asv
+src/matlab/standing-flexed.mat
+src/matlab/standing-straight.mat
+*.mp4
