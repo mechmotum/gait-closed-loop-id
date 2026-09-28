@@ -525,9 +525,9 @@ def load_winter_data_frame(num_nodes=None, half_cycle=False):
         # negated. The hip moments in our data set do not look precisely like
         # Winter's.
         # negate
-        'hip moment': ('Right.Hip.Flexion.Moment', -1.0, 0.0),
+        'hip moment': ('Right.Hip.Flexion.Moment', 1.0, 0.0),
         # negate
-        'knee moment': ('Right.Knee.Flexion.Moment', -1.0, 0.0),
+        'knee moment': ('Right.Knee.Flexion.Moment', 1.0, 0.0),
         'ankle moment': ('Right.Ankle.PlantarFlexion.Moment', 1.0, 0.0),
     }
 
@@ -566,19 +566,26 @@ def load_winter_data_frame(num_nodes=None, half_cycle=False):
         df[name] = sign*df[k] + offset
         # The Winter data has 51 data points from 0% to 100% gait cycle for
         # right leg starting at heel contact.
-        # sample 1 = 0%, right heel contact
-        # sample 26 = 50%
-        # sample 51 = 100%, right heel contact
-        # right   | left
-        # 0% 1    | 26
-        # 50% 26  | 51
-        #         | 2
-        # 100% 51 | 26
-        # skip point 1 in let and repeat 26, is that correct?
-        # TODO : Is this the correct shift, i.e. moving the 50% sample to the
-        # 0%? Ton does (ang[:26, :], ang[25:, :]) below, which adds one point
-        # twice.
-        left = np.hstack((df[k][25:], df[k][1:26]))
+        # sample 0 = 0%, right heel contact
+        # sample 25 = 50%
+        # sample 50 = 100%, right heel contact
+        # i  | right | i       | left
+        # 0  | 0%    | 25      | 50%
+        # 1  | 2%    | 26      | 52%
+        # .  | .     | .       | .
+        # 24 | 48%   | 49      | 98%
+        # 25 | 50%   | 0 or 50 | 0% or 100%
+        # 26 | 52%   | 1       | 2%
+        # 27 | 54%   | 2       | 4%
+        # .  | .     | .       | .
+        # 49 | 98%   | 24      | 48%
+        # 50 | 100%  | 25      | 50%
+        # When creating the full gait cycle for the left side you have a choice
+        # of putting the right's i=0 or i=50 at the left's heel strike. Or you
+        # could average the values.
+        # Two choices:
+        #left = np.hstack((df[k][25:], df[k][1:26]))  # drop 0
+        left = np.hstack((df[k][25:-1], df[k][:26]))  # drop 50
         lname = name.replace('Right', 'Left').replace('FP2', 'FP1')
         df[lname] = sign*left + offset
 
@@ -588,14 +595,12 @@ def load_winter_data_frame(num_nodes=None, half_cycle=False):
         del df[k]
 
     if half_cycle:
-        # returns Winter's sample 1-26 inclusive
+        # returns 0% to 50% inclusive
         df = df.iloc[:26, :]
 
     if num_nodes is not None:
         t0, tf = df['Time'].values[[0, -1]]
-        # TODO : In load_winter_data and load_sample_data we do num_nodes - 1,
-        # why? If you ask for X nodes why wdo we return one less?
-        new_time = np.linspace(t0, tf, num=num_nodes - 1)
+        new_time = np.linspace(t0, tf, num=num_nodes)
         df = pd.DataFrame(interp1d(df['Time'], df.values, axis=0)(new_time),
                           columns=df.columns,
                           index=np.arange(len(new_time)))
@@ -1074,20 +1079,22 @@ def plot_marker_comparison(marker_coords, marker_labels, marker_df, prob,
 
 
 if __name__ == "__main__":
-    constants = body_segment_parameters_from_calibration(CALIBDATAPATH, 70.0,
-                                                         plot=True)
+    constants = body_segment_parameters_from_calibration(CALIBDATAPATH, 70.0),
+                                                         #plot=True)
     master_df = pd.read_csv(GAITDATAPATH)
     df = extract_gait_cycle(master_df, 100)
-    plot_points(df)
+    #plot_points(df)
 
-    num_nodes = 37
+    num_nodes = 26
     (duration, walking_speed, num_angles, ang_data, marker_df,
      kinetic_df, ang_df) = load_sample_data(num_nodes, gait_cycle_number=87)
-    kinetic_df.plot(marker='.', subplots=True)
+    #kinetic_df.plot(marker='.', subplots=True)
 
-    winter_df = load_winter_data_frame(num_nodes=num_nodes, half_cycle=True)
-    winter_df.plot(x='Time', marker='.', subplots=True, layout=(-1, 2))
+    num_nodes = 51
+    winter_df = load_winter_data_frame(num_nodes=num_nodes) #, half_cycle=True)
+    #winter_df.plot(x='Time', marker='.', subplots=True, layout=(-1, 2))
 
+    num_nodes = 26
     _, _, num_ang, ang_data = load_winter_data(num_nodes)
     ang_data = ang_data.reshape(num_ang, num_nodes - 1).T
     ang_df_orig = pd.DataFrame(ang_data, columns=[
@@ -1112,7 +1119,8 @@ if __name__ == "__main__":
                     label='Measured: ' + col)
         if col in ang_df_orig:
             ax.plot(ang_df_orig.index, np.rad2deg(ang_df_orig[col]),
-                    marker='.', label='Winter (original): ' + col)
+                    marker='x', label='Winter (original): ' + col)
+        ax.axvline(25, color='black')
         ax.legend(fontsize=6)
 
     plt.show()
