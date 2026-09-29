@@ -5,7 +5,7 @@ import pandas as pd
 import sympy as sm
 import matplotlib.pyplot as plt
 from scipy.interpolate import interp1d
-from pygait2d.segment import time_varying, contact_force
+from pygait2d.segment import time_varying
 from symmeplot.matplotlib import Scene3D
 from matplotlib.animation import FuncAnimation
 
@@ -609,21 +609,32 @@ def load_winter_data_frame(num_nodes=None, half_cycle=False):
 
 
 def load_winter_data(num_nodes):
-    """Returns interpolated normative gait data from Winter's book from 0% to
-    50%*(1 - 1/(N - 1)) of the gait cycle.
+    """Returns interpolated normative gait data from Winter's book formulated
+    as a gait cycle of both legs from 0% to ``50%*(1 - 1/(N - 1))``.
+
+    Parameters
+    ==========
+    num_nodes : int
+        Desired number of time nodes N for 50% of the gait cycle.
 
     Returns
     =======
     duration : float
-        Time in seconds of the half gait cycle.
+        Time in seconds corresponding to the duration of 50% of the gait cycle.
     walking_speed : float
         Average walking speed in meters per second.
     num_angles : int
         Numer of angles: 6. (r & l hip, knee, ankle)
     ang_data : ndarray, shape((num_nodes-1)*num_angles,)
         Angle data in radians linear interpolated at the times corresponding to
-        the number of nodes. [hip1, ..., hipN, knee1, ..., kneeN, ankle1, ...,
-        ankleN, hip1, ..., hipN, knee1, ..., kneeN, ankle1, ..., ankleN]
+        the number of nodes::
+
+            [rhip0, ..., rhipN-2,
+             rknee0, ..., rkneeN-2,
+             rankle0, ..., rankleN-2,
+             lhip0, ..., lhipN-2,
+             lknee0, ..., lkneeN-2,
+             lankle0, ..., lankleN-2]
 
     """
     fname = os.path.join(DATADIR, 'Winter_normal.csv')
@@ -631,21 +642,25 @@ def load_winter_data(num_nodes):
     data = np.genfromtxt(fname, delimiter=',')
 
     # extract gait cycle duration and speed
-    duration = data[1, 2]/2  # half gait cycle duration
+    duration = data[1, 2]/2  # half gait cycle duration, 0%-50% inclusive
     walking_speed = data[2, 2]
 
     # extract hip, knee, ankle angle (full gait cycle)
     ang = np.deg2rad(data[6:57, 4:7])
+    #grf = data[6:57, 7:9]  # [horizontal, vertical]
+    #mom = data[6:57, 9:12]  # [hip, knee, ankle]
     # invert Winter's knee angle, to be compatible with our model
     ang[:, 1] = -ang[:, 1]
 
     # convert full gait cycle (one side) into a half gait cycle for both sides
-    # and resample to num_nodes
-    ang = np.concatenate((ang[:26, :], ang[25:, :]), axis=1)
+    # and resample to num_nodes; take first 26 for the right and last 26 for
+    # the left (note that 50% node is present in both)
+    ang = np.concatenate((ang[:26, :], ang[25:, :]), axis=1)  # shape(26, 6)
     rows, num_angles = ang.shape
-    ang_resampled = np.zeros((num_nodes - 1, num_angles))
-    t = np.arange(0, rows)/(rows - 1)  # gait phase from data
-    t_new = np.arange(0, num_nodes - 1)/(num_nodes - 1)  # gait phase for sim
+    t = np.arange(0, rows)/(rows - 1)  # [0, ..., 1], shape(26,)
+    # t_new: [0, ..., 1 - 1/(N-1)], shape(25,)
+    t_new = np.arange(0, num_nodes - 1)/(num_nodes - 1)
+    ang_resampled = np.zeros((num_nodes - 1, num_angles))  # shape(25, 6)
     for i in range(0, num_angles):
         ang_resampled[:, i] = np.interp(t_new, t, ang[:, i])
 
@@ -1086,18 +1101,20 @@ if __name__ == "__main__":
     df = extract_gait_cycle(master_df, 100)
     #plot_points(df)
 
-    num_nodes = 26
+    half_cycle_num_nodes = 26
+    full_cycle_num_nodes = half_cycle_num_nodes*2
+
     (duration, walking_speed, num_angles, ang_data, marker_df,
-     kinetic_df, ang_df) = load_sample_data(num_nodes, gait_cycle_number=87)
+     kinetic_df, ang_df) = load_sample_data(half_cycle_num_nodes,
+                                            gait_cycle_number=87)
     #kinetic_df.plot(marker='.', subplots=True)
 
-    num_nodes = 51
-    winter_df = load_winter_data_frame(num_nodes=num_nodes) #, half_cycle=True)
-    #winter_df.plot(x='Time', marker='.', subplots=True, layout=(-1, 2))
+    winter_df = load_winter_data_frame(num_nodes=full_cycle_num_nodes) #, half_cycle=True)
+    #winter_df = load_winter_data_frame(num_nodes=half_cycle_num_nodes, half_cycle=True)
+    winter_df.plot(x='Percent Gait Cycle', marker='.', subplots=True, layout=(-1, 2))
 
-    num_nodes = 26
-    _, _, num_ang, ang_data = load_winter_data(num_nodes)
-    ang_data = ang_data.reshape(num_ang, num_nodes - 1).T
+    dur, _, num_ang, ang_data = load_winter_data(half_cycle_num_nodes)
+    ang_data = ang_data.reshape(num_ang, half_cycle_num_nodes - 1).T
     ang_df_orig = pd.DataFrame(ang_data, columns=[
         'Right.Hip.Flexion.Angle',
         'Right.Knee.Flexion.Angle',
@@ -1121,7 +1138,7 @@ if __name__ == "__main__":
         if col in ang_df_orig:
             ax.plot(ang_df_orig.index, np.rad2deg(ang_df_orig[col]),
                     marker='x', label='Winter (original): ' + col)
-        ax.axvline(25, color='black')
+        ax.axvline(half_cycle_num_nodes - 1, color='black')  # 50%
         ax.legend(fontsize=6)
 
     plt.show()
