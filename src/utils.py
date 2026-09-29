@@ -609,7 +609,8 @@ def load_winter_data_frame(num_nodes=None, half_cycle=False):
 
 
 def load_winter_data(num_nodes):
-    """Returns interpolated normative gait data from Winter's book.
+    """Returns interpolated normative gait data from Winter's book from 0% to
+    50%*(1 - 1/(N - 1)) of the gait cycle.
 
     Returns
     =======
