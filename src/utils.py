@@ -487,11 +487,14 @@ def load_winter_data_frame(num_nodes=None, half_cycle=False,
     half_cycle : boolean, optional
         If true, returns the first half of the gait cycle 0% to 50%. Else the
         full gait cycle 0% to 100% is returned.
+    drop_last_node : boolean, optional
+        If true, then the returned data frame excludes the 50% or 100% node.
 
     Returns
     =======
-    df : DataFrame, shape(num_nodes - 1, 19)
-        Index is range(num_nodes - 1). Column names are:
+    df : DataFrame, shape(num_nodes or num_nodes - 1, 19)
+        Index is range(num_nodes) for `drop_last_node=False` or range(num_nodes
+        - 1) for `drop_last_node=True`. Column names are:
 
         1. 'Percent Gait Cycle'
         2. 'Time'
