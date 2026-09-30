@@ -474,7 +474,8 @@ def plot_points(df):
     return ax
 
 
-def load_winter_data_frame(num_nodes=None, half_cycle=False):
+def load_winter_data_frame(num_nodes=None, half_cycle=False,
+                           drop_last_node=False):
     """Returns Winter's normative gait data transformed to match naming
     conventions of our measurement data.
 
@@ -525,9 +526,9 @@ def load_winter_data_frame(num_nodes=None, half_cycle=False):
         # negated. The hip moments in our data set do not look precisely like
         # Winter's.
         # negate
-        'hip moment': ('Right.Hip.Flexion.Moment', 1.0, 0.0),
+        'hip moment': ('Right.Hip.Flexion.Moment', -1.0, 0.0),
         # negate
-        'knee moment': ('Right.Knee.Flexion.Moment', 1.0, 0.0),
+        'knee moment': ('Right.Knee.Flexion.Moment', -1.0, 0.0),
         'ankle moment': ('Right.Ankle.PlantarFlexion.Moment', 1.0, 0.0),
     }
 
@@ -553,6 +554,7 @@ def load_winter_data_frame(num_nodes=None, half_cycle=False):
     df.index = df.index.astype(int)
     # remove whitespace
     df.columns = df.columns.str.strip()
+    # Time is inclusive [0%, 100%] for full gait cycle duration.
     df['Time'] = np.linspace(0.0, duration, num=len(df))
     df['Speed'] = walking_speed
     if subject_mass is not None:
@@ -605,7 +607,10 @@ def load_winter_data_frame(num_nodes=None, half_cycle=False):
                           columns=df.columns,
                           index=np.arange(len(new_time)))
 
-    return df
+    if drop_last_node:
+        return df.iloc[:-1, :]
+    else:
+        return df
 
 
 def load_winter_data(num_nodes):
@@ -736,7 +741,8 @@ def load_sample_data(num_nodes, gait_cycle_number=100):
     ]
     # TODO : what should the nominal sign convention be? This adjusts to match
     # what is returned from load_winter_data() (which presumably matches the
-    # simulation model conventions).
+    # simulation model conventions). Note that these adjustements invalidate
+    # the column names.
     ang_arr = -df[angles].values  # change to extension (knee and ankle)
     ang_arr[:, [0, 3]] *= -1  # change hip back to flexion
     ang_arr[:, [2, 5]] -= np.pi/2  # shift ankle 90 degrees
@@ -789,6 +795,8 @@ def load_sample_data(num_nodes, gait_cycle_number=100):
     ]
     kinetic_vals = df[kinetics].values
 
+    # NOTE : It is fraught to use arange() for constructing these due to
+    # numerical stability of arange(), use linspace()!
     time_step = duration/(num_nodes - 1)
     time = np.linspace(0.0, duration - time_step, num=num_nodes - 1)
     percent_step = 50.0/(num_nodes - 1)
@@ -1127,26 +1135,33 @@ def plot_marker_comparison(marker_coords, marker_labels, marker_df, prob,
 
 
 if __name__ == "__main__":
-    constants = body_segment_parameters_from_calibration(CALIBDATAPATH, 70.0),
-                                                         #plot=True)
+    constants = body_segment_parameters_from_calibration(CALIBDATAPATH, 70.0,
+                                                         plot=True)
     master_df = pd.read_csv(GAITDATAPATH)
     df = extract_gait_cycle(master_df, 100)
-    #plot_points(df)
+    plot_points(df)
 
-    half_cycle_num_nodes = 10
-    full_cycle_num_nodes = 51
+    half_cycle_num_nodes = 50
+    full_cycle_num_nodes = 121
 
     (duration, walking_speed, num_angles, ang_data, marker_df,
      kinetic_df, ang_df, _, sample_data_percent) = load_sample_data(
-         half_cycle_num_nodes, gait_cycle_number=87)
-    #kinetic_df.plot(marker='.', subplots=True)
+         half_cycle_num_nodes, gait_cycle_number=312)
+    kinetic_df.plot(marker='.', subplots=True)
 
-    winter_df = load_winter_data_frame(num_nodes=full_cycle_num_nodes) #, half_cycle=True)
-    #winter_df = load_winter_data_frame(num_nodes=half_cycle_num_nodes, half_cycle=True)
-    winter_df.plot(x='Percent Gait Cycle', marker='.', subplots=True, layout=(-1, 2))
+    # show that the full gait cycle generates correctly
+    winter_full_df = load_winter_data_frame(num_nodes=full_cycle_num_nodes)
+    winter_full_df.plot(x='Percent Gait Cycle', marker='.', subplots=True,
+                        layout=(-1, 2))
+
+    # this creates the same output as load_winder_data():
+    winter_df = load_winter_data_frame(num_nodes=half_cycle_num_nodes,
+                                       half_cycle=True, drop_last_node=True)
 
     dur, _, num_ang, ang_data = load_winter_data(half_cycle_num_nodes)
-    percent = np.arange(0, half_cycle_num_nodes - 1)/(half_cycle_num_nodes - 1)*50.0
+    percent_step = dur/(half_cycle_num_nodes - 1)
+    percent = np.linspace(0.0, 50.0 - percent_step,
+                          num=half_cycle_num_nodes - 1)
     ang_data = ang_data.reshape(num_ang, half_cycle_num_nodes - 1).T
     ang_df_orig = pd.DataFrame(ang_data, columns=[
         'Right.Hip.Flexion.Angle',
