@@ -525,9 +525,9 @@ def load_winter_data_frame(num_nodes=None, half_cycle=False,
         # Winters' knee is flexion, negate to extension
         'knee angle': ('Right.Knee.Extension.Angle', -1.0, 0.0),
         'ankle angle': ('Right.Ankle.DorsiFlexion.Angle', 1.0, 0.0),
-        # TODO : Figure out if any moments need to be negated.
         'hip moment': ('Right.Hip.Flexion.Moment', 1.0, 0.0),
-        'knee moment': ('Right.Knee.Flexion.Moment', 1.0, 0.0),
+        # Winters' knee is extension, negate to flexion
+        'knee moment': ('Right.Knee.Flexion.Moment', -1.0, 0.0),
         'ankle moment': ('Right.Ankle.PlantarFlexion.Moment', 1.0, 0.0),
     }
 
@@ -644,8 +644,8 @@ def load_winter_data(num_nodes):
              lankle0, ..., lankleN-2]  # dorsiflexion
 
     """
-    # NOTE : Gait2D model has angular hip extension, knee extension, and ankle
-    # plantar flexion as positive.
+    # NOTE : Gait2D model has angular hip flexion, knee extension, and ankle
+    # dorsi flexion as positive.
     fname = os.path.join(DATADIR, 'Winter_normal.csv')
 
     data = np.genfromtxt(fname, delimiter=',')
@@ -655,25 +655,23 @@ def load_winter_data(num_nodes):
     walking_speed = data[2, 2]
 
     # extract hip, knee, ankle angle (full gait cycle)
+    # NOTE : Winters' ankle angle = 0 reprsents nominal standing config.
     ang = np.deg2rad(data[6:57, 4:7])
     #grf = data[6:57, 7:9]  # [horizontal, vertical]
     #mom = data[6:57, 9:12]  # [hip, knee, ankle]
     # invert Winter's knee angle, to be compatible with our model
     ang[:, 1] = -ang[:, 1]
-    # TODO : What is Winter's ankle angle = 0? (standing flat or tippy toed?)
-    # Our simulation model expects flat. If this function outputs the model's
-    # convention, then it should consistently do so.
 
     # convert full gait cycle (one side) into a half gait cycle for both sides
     # and resample to num_nodes; take first 26 for the right and last 26 for
-    # the left (note that 50% node is present in both)
+    # the left (note that 50% node is present in both slices)
     ang = np.concatenate((ang[:26, :], ang[25:, :]), axis=1)  # shape(26, 6)
     rows, num_angles = ang.shape
     t = np.arange(0, rows)/(rows - 1)  # [0, ..., 1], shape(26,)
     # t_new: [0, ..., 1 - 1/(N-1)], shape(25,)
     t_new = np.arange(0, num_nodes - 1)/(num_nodes - 1)
     ang_resampled = np.zeros((num_nodes - 1, num_angles))  # shape(25, 6)
-    for i in range(0, num_angles):
+    for i in range(num_angles):
         ang_resampled[:, i] = np.interp(t_new, t, ang[:, i])
 
     # ang_resampled shape(time, [hip, knee, ankle, hip, knee, ankle])
@@ -1198,6 +1196,7 @@ if __name__ == "__main__":
     fig, axes = plt.subplots(len(winter_df.columns) // 2 +
                              len(winter_df.columns) % 2, 2,
                              sharex=True,
+                             sharey='row',
                              layout='constrained')
     for ax, col in zip(axes.flatten(), winter_df.columns[3:]):
         ax.plot(winter_df['Percent Gait Cycle'], winter_df[col], marker='.',
