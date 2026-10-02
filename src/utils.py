@@ -522,16 +522,12 @@ def load_winter_data_frame(num_nodes=None, half_cycle=False,
         'vertical GRF': ('FP2.ForY', 1.0, 0.0),
         'horizontal GRF': ('FP2.ForX', 1.0, 0.0),
         'hip angle': ('Right.Hip.Flexion.Angle', 1.0, 0.0),
-        # negate
-        'knee angle': ('Right.Knee.Flexion.Angle', -1.0, 0.0),
-        'ankle angle': ('Right.Ankle.PlantarFlexion.Angle', 1.0, 0.0),
-        # TODO : It is not so clear if the hip flexion moment should be
-        # negated. The hip moments in our data set do not look precisely like
-        # Winter's.
-        # negate
-        'hip moment': ('Right.Hip.Flexion.Moment', -1.0, 0.0),
-        # negate
-        'knee moment': ('Right.Knee.Flexion.Moment', -1.0, 0.0),
+        # Winters' knee is flexion, negate to extension
+        'knee angle': ('Right.Knee.Extension.Angle', -1.0, 0.0),
+        'ankle angle': ('Right.Ankle.DorsiFlexion.Angle', 1.0, 0.0),
+        # TODO : Figure out if any moments need to be negated.
+        'hip moment': ('Right.Hip.Flexion.Moment', 1.0, 0.0),
+        'knee moment': ('Right.Knee.Flexion.Moment', 1.0, 0.0),
         'ankle moment': ('Right.Ankle.PlantarFlexion.Moment', 1.0, 0.0),
     }
 
@@ -560,20 +556,21 @@ def load_winter_data_frame(num_nodes=None, half_cycle=False,
     # Time is inclusive [0%, 100%] for full gait cycle duration.
     df['Time'] = np.linspace(0.0, duration, num=len(df))
     df['Speed'] = walking_speed
-    if subject_mass is not None:
-        kinetics = ['horizontal GRF', 'vertical GRF', 'hip moment',
-                    'knee moment', 'ankle moment']
-        for kinetic in kinetics:
-            df[kinetic] = df[kinetic]*subject_mass
+    kinetics = ['horizontal GRF', 'vertical GRF', 'hip moment', 'knee moment',
+                'ankle moment']
+    for kinetic in kinetics:
+        df[kinetic] = df[kinetic]*subject_mass
 
     for k, v in winter_moore_map.items():
         name, sign, offset = v
         df[name] = sign*df[k] + offset
         # The Winter data has 51 data points from 0% to 100% gait cycle for
         # right leg starting at heel contact.
+        #
         # sample 0 = 0%, right heel contact
         # sample 25 = 50%
         # sample 50 = 100%, right heel contact
+        #
         # i  | right | i       | left
         # 0  | 0%    | 25      | 50%
         # 1  | 2%    | 26      | 52%
@@ -585,6 +582,7 @@ def load_winter_data_frame(num_nodes=None, half_cycle=False,
         # .  | .     | .       | .
         # 49 | 98%   | 24      | 48%
         # 50 | 100%  | 25      | 50%
+        #
         # When creating the full gait cycle for the left side you have a choice
         # of putting the right's i=0 or i=50 at the left's heel strike. Or you
         # could average the values.
@@ -600,7 +598,7 @@ def load_winter_data_frame(num_nodes=None, half_cycle=False,
         del df[k]
 
     if half_cycle:
-        # returns 0% to 50% inclusive
+        # returns [0% to 50%] inclusive
         df = df.iloc[:26, :]
 
     if num_nodes is not None:
@@ -618,7 +616,8 @@ def load_winter_data_frame(num_nodes=None, half_cycle=False,
 
 def load_winter_data(num_nodes):
     """Returns interpolated normative gait data from Winter's book formulated
-    as a gait cycle of both legs from 0% to ``50%*(1 - 1/(N - 1))``.
+    as a gait cycle of both legs from 0% to ``50%*(1 - 1/(N - 1))`` and
+    matching our simulation model's angle sign convention.
 
     Parameters
     ==========
@@ -635,16 +634,18 @@ def load_winter_data(num_nodes):
         Number of angles: 6. (r & l hip, knee, ankle)
     ang_data : ndarray, shape((num_nodes-1)*num_angles,)
         Angle data in radians linear interpolated at the times corresponding to
-        the number of nodes::
+        the number of nodes in the sign convention of our simulation model::
 
-            [rhip0, ..., rhipN-2,
-             rknee0, ..., rkneeN-2,
-             rankle0, ..., rankleN-2,
-             lhip0, ..., lhipN-2,
-             lknee0, ..., lkneeN-2,
-             lankle0, ..., lankleN-2]
+            [rhip0, ..., rhipN-2,  # flexion
+             rknee0, ..., rkneeN-2,  # extension
+             rankle0, ..., rankleN-2,  # dorsiflexion
+             lhip0, ..., lhipN-2,  # flexion
+             lknee0, ..., lkneeN-2,  # extension
+             lankle0, ..., lankleN-2]  # dorsiflexion
 
     """
+    # NOTE : Gait2D model has angular hip extension, knee extension, and ankle
+    # plantar flexion as positive.
     fname = os.path.join(DATADIR, 'Winter_normal.csv')
 
     data = np.genfromtxt(fname, delimiter=',')
@@ -659,6 +660,9 @@ def load_winter_data(num_nodes):
     #mom = data[6:57, 9:12]  # [hip, knee, ankle]
     # invert Winter's knee angle, to be compatible with our model
     ang[:, 1] = -ang[:, 1]
+    # TODO : What is Winter's ankle angle = 0? (standing flat or tippy toed?)
+    # Our simulation model expects flat. If this function outputs the model's
+    # convention, then it should consistently do so.
 
     # convert full gait cycle (one side) into a half gait cycle for both sides
     # and resample to num_nodes; take first 26 for the right and last 26 for
@@ -680,7 +684,7 @@ def load_winter_data(num_nodes):
     return duration, walking_speed, num_angles, ang_data
 
 
-def load_sample_data(num_nodes, gait_cycle_number=100):
+def load_sample_data(num_nodes, gait_cycle_number=10):
     """Returns interpolated data from a measurement file formulated as a single
     gait cycle of both legs from 0% to ``50%*(1 - 1/(N - 1))`` in the same
     format as ``load_winter_data()``.
@@ -705,12 +709,12 @@ def load_sample_data(num_nodes, gait_cycle_number=100):
         Angle data in radians linear interpolated at the times corresponding to
         the number of nodes::
 
-            [rhip0, ..., rhipN-2,
-             rknee0, ..., rkneeN-2,
-             rankle0, ..., rankleN-2,
-             lhip0, ..., lhipN-2,
-             lknee0, ..., lkneeN-2,
-             lankle0, ..., lankleN-2]
+            [rhip0, ..., rhipN-2,  # flexion
+             rknee0, ..., rkneeN-2,  # extension
+             rankle0, ..., rankleN-2,  # dorsiflexion
+             lhip0, ..., lhipN-2,  # flexion
+             lknee0, ..., lkneeN-2,  # extension
+             lankle0, ..., lankleN-2]  # dorsiflexion
 
     mark_df : DataFrame
         Data frame containing the marker trajectories.
@@ -742,13 +746,27 @@ def load_sample_data(num_nodes, gait_cycle_number=100):
         'Left.Knee.Flexion.Angle',
         'Left.Ankle.PlantarFlexion.Angle',
     ]
-    # TODO : what should the nominal sign convention be? This adjusts to match
-    # what is returned from load_winter_data() (which presumably matches the
-    # simulation model conventions). Note that these adjustements invalidate
-    # the column names.
-    ang_arr = -df[angles].values  # change to extension (knee and ankle)
+    all_angles = angles + [
+        'Right.Knee.Extension.Angle',
+        'Right.Ankle.DorsiFlexion.Angle',
+        'Left.Knee.Extension.Angle',
+        'Left.Ankle.DorsiFlexion.Angle',
+    ]
+    # TODO : This adjusts ang_arr to match what is returned from
+    # load_winter_data() (which presumably matches the simulation model
+    # conventions).
+    ang_arr = -df[angles].values.copy()  # change to extension (knee and ankle)
     ang_arr[:, [0, 3]] *= -1  # change hip back to flexion
     ang_arr[:, [2, 5]] -= np.pi/2  # shift ankle 90 degrees
+
+    # Adds angles needed for simulation comparison.
+    df['Right.Knee.Extension.Angle'] = -df['Right.Knee.Flexion.Angle']
+    df['Right.Ankle.DorsiFlexion.Angle'] = -df['Right.Ankle.PlantarFlexion.Angle'] - np.pi/2
+    df['Right.Ankle.PlantarFlexion.Angle'] = df['Right.Ankle.PlantarFlexion.Angle'] + np.pi/2
+    df['Left.Knee.Extension.Angle'] = -df['Left.Knee.Flexion.Angle']
+    df['Left.Ankle.DorsiFlexion.Angle'] = -df['Left.Ankle.PlantarFlexion.Angle'] - np.pi/2
+    df['Left.Ankle.PlantarFlexion.Angle'] = df['Left.Ankle.PlantarFlexion.Angle'] + np.pi/2
+    ang_vals = df[all_angles].values.copy()
 
     markers = [
         'LGTRO.PosX',
@@ -780,7 +798,7 @@ def load_sample_data(num_nodes, gait_cycle_number=100):
         'RTOE.PosX',
         'RTOE.PosY',
     ]
-    marker_vals = df[markers].values
+    marker_vals = df[markers].values.copy()
 
     kinetics = [
         'FP1.ForX',
@@ -796,7 +814,7 @@ def load_sample_data(num_nodes, gait_cycle_number=100):
         'Left.Knee.Flexion.Moment',
         'Left.Ankle.PlantarFlexion.Moment',
     ]
-    kinetic_vals = df[kinetics].values
+    kinetic_vals = df[kinetics].values.copy()
 
     # NOTE : It is fraught to use arange() for constructing these due to
     # numerical stability of arange(), use linspace()!
@@ -804,13 +822,15 @@ def load_sample_data(num_nodes, gait_cycle_number=100):
     time = np.linspace(0.0, duration - time_step, num=num_nodes - 1)
     percent_step = 50.0/(num_nodes - 1)
     percent = np.linspace(0.0, 50.0 - percent_step, num=num_nodes - 1)
+
     interp_ang_arr = interp1d(full_time, ang_arr, axis=0)(time)
+    interp_ang_vals = interp1d(full_time, ang_vals, axis=0)(time)
     interp_mark_arr = interp1d(full_time, marker_vals, axis=0)(time)
     interp_kinetic_arr = interp1d(full_time, kinetic_vals, axis=0)(time)
 
     mark_df = pd.DataFrame(dict(zip(markers, interp_mark_arr.T)))
     kinetic_df = pd.DataFrame(dict(zip(kinetics, interp_kinetic_arr.T)))
-    ang_df = pd.DataFrame(dict(zip(angles, interp_ang_arr.T)))
+    ang_df = pd.DataFrame(dict(zip(all_angles, interp_ang_vals.T)))
 
     return (duration, walking_speed, len(angles), interp_ang_arr.T.flatten(),
             mark_df, kinetic_df, ang_df, time, percent)
@@ -1138,8 +1158,8 @@ def plot_marker_comparison(marker_coords, marker_labels, marker_df, prob,
 
 
 if __name__ == "__main__":
-    constants = body_segment_parameters_from_calibration(CALIBDATAPATH, 70.0,
-                                                         plot=True)
+    #constants = body_segment_parameters_from_calibration(CALIBDATAPATH, 70.0,
+                                                         #plot=True)
     master_df = pd.read_csv(GAITDATAPATH)
     df = extract_gait_cycle(master_df, 100)
     plot_points(df)
@@ -1161,25 +1181,27 @@ if __name__ == "__main__":
     winter_df = load_winter_data_frame(num_nodes=half_cycle_num_nodes,
                                        half_cycle=True, drop_last_node=True)
 
-    dur, _, num_ang, ang_data = load_winter_data(half_cycle_num_nodes)
-    percent_step = dur/(half_cycle_num_nodes - 1)
+    _, _, num_ang, ang_data = load_winter_data(half_cycle_num_nodes)
+    percent_step = 50.0/(half_cycle_num_nodes - 1)
     percent = np.linspace(0.0, 50.0 - percent_step,
                           num=half_cycle_num_nodes - 1)
     ang_data = ang_data.reshape(num_ang, half_cycle_num_nodes - 1).T
     ang_df_orig = pd.DataFrame(ang_data, columns=[
         'Right.Hip.Flexion.Angle',
-        'Right.Knee.Flexion.Angle',
-        'Right.Ankle.PlantarFlexion.Angle',
+        'Right.Knee.Extension.Angle',
+        'Right.Ankle.DorsiFlexion.Angle',
         'Left.Hip.Flexion.Angle',
-        'Left.Knee.Flexion.Angle',
-        'Left.Ankle.PlantarFlexion.Angle'
+        'Left.Knee.Extension.Angle',
+        'Left.Ankle.DorsiFlexion.Angle'
     ])
+
     fig, axes = plt.subplots(len(winter_df.columns) // 2 +
-                             len(winter_df.columns) % 2, 2, sharex=True,
-                                 layout='constrained')
+                             len(winter_df.columns) % 2, 2,
+                             sharex=True,
+                             layout='constrained')
     for ax, col in zip(axes.flatten(), winter_df.columns[3:]):
         ax.plot(winter_df['Percent Gait Cycle'], winter_df[col], marker='.',
-                label='Winter (new): ' + col)
+                label='Winter (new): ' + col, linewidth=2)
         if col in kinetic_df:
             ax.plot(sample_data_percent, kinetic_df[col], marker='.',
                     label='Measured: ' + col)
