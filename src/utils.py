@@ -670,9 +670,7 @@ def load_winter_data(num_nodes):
     t = np.arange(0, rows)/(rows - 1)  # [0, ..., 1], shape(26,)
     # t_new: [0, ..., 1 - 1/(N-1)], shape(25,)
     t_new = np.arange(0, num_nodes - 1)/(num_nodes - 1)
-    ang_resampled = np.zeros((num_nodes - 1, num_angles))  # shape(25, 6)
-    for i in range(num_angles):
-        ang_resampled[:, i] = np.interp(t_new, t, ang[:, i])
+    ang_resampled = interp1d(t, ang, axis=0)(t_new)
 
     # ang_resampled shape(time, [hip, knee, ankle, hip, knee, ankle])
 
