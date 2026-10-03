@@ -661,21 +661,27 @@ def load_winter_data(num_nodes, as_data_frame=False):
     # extract hip, knee, ankle angle (full gait cycle)
     # NOTE : Winters' ankle angle = 0 reprsents nominal standing config.
     ang = np.deg2rad(data[6:57, 4:7])
-    #grf = data[6:57, 7:9]  # [horizontal, vertical]
-    #mom = data[6:57, 9:12]  # [hip, knee, ankle]
+    kin = data[6:57, 7:12]  # [horizontal, vertical, hip, knee, ankle]
     # invert Winter's knee angle, to be compatible with our model
     ang[:, 1] = -ang[:, 1]
+    # invert Winters' hip and ankle moments to make them flexion & dorsiflexion
+    kin[:, 2] = -kin[:, 2]
+    kin[:, 4] = -kin[:, 4]
+    # convert to N from N/kg
+    kin = 75.0*kin  # 75.0 kg from Winters' book
 
     # convert full gait cycle (one side) into a half gait cycle for both sides
     # and resample to num_nodes; take first 26 for the right and last 26 for
     # the left (note that 50% node is present in both slices)
     ang = np.concatenate((ang[:26, :], ang[25:, :]), axis=1)  # shape(26, 6)
+    kin = np.concatenate((kin[:26, :], kin[25:, :]), axis=1)  # shape(26, 10)
     rows, num_angles = ang.shape
     t = np.arange(0, rows)/(rows - 1)  # [0, ..., 1], shape(26,)
     # t_new: [0, ..., 1 - 1/(N-1)], shape(25,)
     t_new = np.arange(0, num_nodes - 1)/(num_nodes - 1)
     # ang_resampled shape(time, [hip, knee, ankle, hip, knee, ankle])
     ang_resampled = interp1d(t, ang, axis=0)(t_new)
+    kin_resampled = interp1d(t, kin, axis=0)(t_new)
 
     if as_data_frame:
         ang_data = pd.DataFrame(ang_resampled, columns=[
@@ -690,6 +696,19 @@ def load_winter_data(num_nodes, as_data_frame=False):
         percent = np.linspace(0.0, 50.0 - percent_step, num=num_nodes - 1)
         ang_data['Percent Gait Cycle'] = percent
         ang_data['Time'] = t_new
+        kin_data = pd.DataFrame(kin_resampled, columns=[
+            'FP2.ForX',
+            'FP2.ForY',
+            'Right.Hip.Flexion.Moment',
+            'Right.Knee.Extension.Moment',
+            'Right.Ankle.DorsiFlexion.Moment',
+            'FP1.ForX',
+            'FP1.ForY',
+            'Left.Hip.Flexion.Moment',
+            'Left.Knee.Extension.Moment',
+            'Left.Ankle.DorsiFlexion.Moment',
+        ])
+        ang_data = pd.concat((ang_data, kin_data), axis=1)
     else:
         # store the angle trajectories in a 1d array, for tracking
         ang_data = ang_resampled.transpose().flatten()
@@ -1244,8 +1263,12 @@ if __name__ == "__main__":
                              layout='constrained')
     for ax, col in zip(axes.flatten(), things):
         if col in ang_data:
-            ax.plot(ang_data['Percent Gait Cycle'], np.rad2deg(ang_data[col]),
-                    color='C0', marker='o', label='Winter (original): ' + col)
+            if 'Angle' in col:
+                val = np.rad2deg(ang_data[col])
+            else:
+                val = ang_data[col]
+            ax.plot(ang_data['Percent Gait Cycle'], val, color='C0',
+                    marker='o', label='Winter (original): ' + col)
         if col in winter_df:
             ax.plot(winter_df['Percent Gait Cycle'], winter_df[col],
                     color='C1', marker='.', label='Winter (new): ' + col)
