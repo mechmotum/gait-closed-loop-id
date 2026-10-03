@@ -243,8 +243,11 @@ def obj(prob, free, obj_show=False):
     and we don't want to include it twice.
 
     """
+    # NOTE : slice(0, -1) is used to avoid double counting the periodic
+    # duplicate values
+
     # minimize mean joint torque
-    tor_vals = extract_values(prob, free, *syms.joint_torques)
+    tor_vals = extract_values(prob, free, *syms.joint_torques, slice=(0, -1))
     f_tor = 1e-6*WTOR*np.sum(tor_vals**2)/len(tor_vals)
 
     f_tot = f_tor
@@ -294,8 +297,9 @@ def obj_grad(prob, free):
 
     grad = np.zeros_like(free)
 
-    tor_vals = extract_values(prob, free, *syms.joint_torques)
-    prob.fill_free(grad, 2e-6*WTOR*tor_vals/len(tor_vals), *syms.joint_torques)
+    tor_vals = extract_values(prob, free, *syms.joint_torques, slice=(0, -1))
+    fill_free(prob, grad, 2e-6*WTOR*tor_vals/len(tor_vals),
+              *syms.joint_torques, slice=(0, -1))
 
     if WANG != 0:
         ang_vals = extract_values(prob, free, *syms.joint_angles,
