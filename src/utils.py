@@ -505,16 +505,16 @@ def load_winter_data_frame(num_nodes=None, half_cycle=False,
         7. 'FP1.ForX' (left)
         8. 'Right.Hip.Flexion.Angle'
         9. 'Left.Hip.Flexion.Angle'
-        10. 'Right.Knee.Flexion.Angle'
-        11. 'Left.Knee.Flexion.Angle'
-        12. 'Right.Ankle.PlantarFlexion.Angle'
-        13. 'Left.Ankle.PlantarFlexion.Angle'
+        10. 'Right.Knee.Extension.Angle'
+        11. 'Left.Knee.Extension.Angle'
+        12. 'Right.Ankle.DorsiFlexion.Angle'
+        13. 'Left.Ankle.DorsiFlexion.Angle'
         14. 'Right.Hip.Flexion.Moment'
         15. 'Left.Hip.Flexion.Moment'
-        16. 'Right.Knee.Flexion.Moment'
-        17. 'Left.Knee.Flexion.Moment'
-        18. 'Right.Ankle.PlantarFlexion.Moment'
-        19. 'Left.Ankle.PlantarFlexion.Moment'
+        16. 'Right.Knee.Extension.Moment'
+        17. 'Left.Knee.Extension.Moment'
+        18. 'Right.Ankle.DorsiFlexion.Moment'
+        19. 'Left.Ankle.DorsiFlexion.Moment'
 
     """
     winter_moore_map = {
@@ -525,10 +525,11 @@ def load_winter_data_frame(num_nodes=None, half_cycle=False,
         # Winters' knee is flexion, negate to extension
         'knee angle': ('Right.Knee.Extension.Angle', -1.0, 0.0),
         'ankle angle': ('Right.Ankle.DorsiFlexion.Angle', 1.0, 0.0),
-        'hip moment': ('Right.Hip.Flexion.Moment', 1.0, 0.0),
-        # Winters' knee is extension, negate to flexion
-        'knee moment': ('Right.Knee.Flexion.Moment', -1.0, 0.0),
-        'ankle moment': ('Right.Ankle.PlantarFlexion.Moment', 1.0, 0.0),
+        # Winters' hip is extension, negate to flexion
+        'hip moment': ('Right.Hip.Flexion.Moment', -1.0, 0.0),
+        'knee moment': ('Right.Knee.Extension.Moment', 1.0, 0.0),
+        # Winters' ankle is plantarflexion, negate to dorsi
+        'ankle moment': ('Right.Ankle.DorsiFlexion.Moment', -1.0, 0.0),
     }
 
     subject_mass = 75.0  # kg (from Winter's book)
@@ -670,9 +671,8 @@ def load_winter_data(num_nodes):
     t = np.arange(0, rows)/(rows - 1)  # [0, ..., 1], shape(26,)
     # t_new: [0, ..., 1 - 1/(N-1)], shape(25,)
     t_new = np.arange(0, num_nodes - 1)/(num_nodes - 1)
-    ang_resampled = interp1d(t, ang, axis=0)(t_new)
-
     # ang_resampled shape(time, [hip, knee, ankle, hip, knee, ankle])
+    ang_resampled = interp1d(t, ang, axis=0)(t_new)
 
     # store the angle trajectories in a 1d array, for tracking
     ang_data = ang_resampled.transpose().flatten()
@@ -715,7 +715,13 @@ def load_sample_data(num_nodes, gait_cycle_number=10):
     mark_df : DataFrame
         Data frame containing the marker trajectories.
     kinetic_df : DataFrame
-        Contains the kinetic (forces, moments) trajectories.
+        Contains the kinetic (forces, moments) trajectories. Postive moments
+        for gait2d model are:
+
+            - hip flexion
+            - knee extension
+            - ankle dorsiflexion
+
     ang_df : DataFrame
         Contains the joint angle trajectores.
     time : ndarray, shape(num_nodes - 1,)
@@ -810,7 +816,17 @@ def load_sample_data(num_nodes, gait_cycle_number=10):
         'Left.Knee.Flexion.Moment',
         'Left.Ankle.PlantarFlexion.Moment',
     ]
-    kinetic_vals = df[kinetics].values.copy()
+    all_kinetics = kinetics + [
+        'Right.Knee.Extension.Moment',
+        'Right.Ankle.DorsiFlexion.Moment',
+        'Left.Knee.Extension.Moment',
+        'Left.Ankle.DorsiFlexion.Moment',
+    ]
+    df['Right.Knee.Extension.Moment'] = -df['Right.Knee.Flexion.Moment']
+    df['Right.Ankle.DorsiFlexion.Moment'] = -df['Right.Ankle.PlantarFlexion.Moment']
+    df['Left.Knee.Extension.Moment'] = -df['Left.Knee.Flexion.Moment']
+    df['Left.Ankle.DorsiFlexion.Moment'] = -df['Left.Ankle.PlantarFlexion.Moment']
+    kinetic_vals = df[all_kinetics].values.copy()
 
     # NOTE : It is fraught to use arange() for constructing these due to
     # numerical stability of arange(), use linspace()!
@@ -825,7 +841,7 @@ def load_sample_data(num_nodes, gait_cycle_number=10):
     interp_kinetic_arr = interp1d(full_time, kinetic_vals, axis=0)(time)
 
     mark_df = pd.DataFrame(dict(zip(markers, interp_mark_arr.T)))
-    kinetic_df = pd.DataFrame(dict(zip(kinetics, interp_kinetic_arr.T)))
+    kinetic_df = pd.DataFrame(dict(zip(all_kinetics, interp_kinetic_arr.T)))
     ang_df = pd.DataFrame(dict(zip(all_angles, interp_ang_vals.T)))
 
     return (duration, walking_speed, len(angles), interp_ang_arr.T.flatten(),
@@ -1165,7 +1181,7 @@ if __name__ == "__main__":
 
     (duration, walking_speed, num_angles, ang_data, marker_df,
      kinetic_df, ang_df, _, sample_data_percent) = load_sample_data(
-         half_cycle_num_nodes, gait_cycle_number=312)
+         half_cycle_num_nodes, gait_cycle_number=6)
     kinetic_df.plot(marker='.', subplots=True)
 
     # show that the full gait cycle generates correctly
@@ -1173,7 +1189,7 @@ if __name__ == "__main__":
     winter_full_df.plot(x='Percent Gait Cycle', marker='.', subplots=True,
                         layout=(-1, 2))
 
-    # this creates the same output as load_winder_data():
+    # this creates the same output as load_winder_data()
     winter_df = load_winter_data_frame(num_nodes=half_cycle_num_nodes,
                                        half_cycle=True, drop_last_node=True)
 
@@ -1191,24 +1207,54 @@ if __name__ == "__main__":
         'Left.Ankle.DorsiFlexion.Angle'
     ])
 
-    fig, axes = plt.subplots(len(winter_df.columns) // 2 +
-                             len(winter_df.columns) % 2, 2,
+    things = [
+        'FP2.ForX',  # right
+        'FP1.ForX',  # left
+
+        'FP2.ForY',
+        'FP1.ForY',
+
+        'Right.Hip.Flexion.Angle',
+        'Left.Hip.Flexion.Angle',
+
+        'Right.Knee.Extension.Angle',
+        'Left.Knee.Extension.Angle',
+
+        'Right.Ankle.DorsiFlexion.Angle',
+        'Left.Ankle.DorsiFlexion.Angle',
+
+        'Right.Hip.Flexion.Moment',
+        'Left.Hip.Flexion.Moment',
+
+        'Right.Knee.Extension.Moment',
+        'Left.Knee.Extension.Moment',
+
+        'Right.Ankle.DorsiFlexion.Moment',
+        'Left.Ankle.DorsiFlexion.Moment',
+    ]
+    fig, axes = plt.subplots(len(things)//2, 2,
                              sharex=True,
                              sharey='row',
                              layout='constrained')
-    for ax, col in zip(axes.flatten(), winter_df.columns[3:]):
-        ax.plot(winter_df['Percent Gait Cycle'], winter_df[col], marker='.',
-                label='Winter (new): ' + col, linewidth=2)
+    for ax, col in zip(axes.flatten(), things):
+        if col in ang_df_orig:
+            ax.plot(percent, np.rad2deg(ang_df_orig[col]), color='C0',
+                    marker='o', label='Winter (original): ' + col)
+        if col in winter_df:
+            ax.plot(winter_df['Percent Gait Cycle'], winter_df[col],
+                    color='C1', marker='.', label='Winter (new): ' + col)
         if col in kinetic_df:
             ax.plot(sample_data_percent, kinetic_df[col], marker='.',
-                    label='Measured: ' + col)
+                    color='C2', label='Measured: ' + col)
         if col in ang_df:
-            ax.plot(sample_data_percent, np.rad2deg(ang_df[col]), marker='.',
-                    label='Measured: ' + col)
-        if col in ang_df_orig:
-            ax.plot(percent, np.rad2deg(ang_df_orig[col]),
-                    marker='x', label='Winter (original): ' + col)
+            ax.plot(sample_data_percent, np.rad2deg(ang_df[col]), color='C2',
+                    marker='.', label='Measured: ' + col)
         ax.axvline(50.0, color='black')  # 50%
         ax.legend(fontsize=6)
+
+    axes[0, 0].set_title('Right')
+    axes[0, 1].set_title('Left')
+    axes[-1, 0].set_xlabel('Percent Gait Cycle')
+    axes[-1, 1].set_xlabel('Percent Gait Cycle')
 
     plt.show()
