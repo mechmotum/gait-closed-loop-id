@@ -73,7 +73,7 @@ if USE_WINTER_DATA:
 else:
     # load a gait cycle from our data (trial 20)
     (duration, walking_speed, num_angles, ang_data,
-     marker_df, kinetic_df) = load_sample_data(
+     marker_df, kinetic_df, ang_df, _, _) = load_sample_data(
          NUM_NODES, gait_cycle_number=GAIT_CYCLE_NUM)
 
 # Define the fixed time step in the simulation
@@ -243,8 +243,11 @@ def obj(prob, free, obj_show=False):
     and we don't want to include it twice.
 
     """
+    # NOTE : slice(0, -1) is used to avoid double counting the periodic
+    # duplicate values
+
     # minimize mean joint torque
-    tor_vals = extract_values(prob, free, *syms.joint_torques)
+    tor_vals = extract_values(prob, free, *syms.joint_torques, slice=(0, -1))
     f_tor = 1e-6*WTOR*np.sum(tor_vals**2)/len(tor_vals)
 
     f_tot = f_tor
@@ -294,8 +297,9 @@ def obj_grad(prob, free):
 
     grad = np.zeros_like(free)
 
-    tor_vals = extract_values(prob, free, *syms.joint_torques)
-    prob.fill_free(grad, 2e-6*WTOR*tor_vals/len(tor_vals), *syms.joint_torques)
+    tor_vals = extract_values(prob, free, *syms.joint_torques, slice=(0, -1))
+    fill_free(prob, grad, 2e-6*WTOR*tor_vals/len(tor_vals),
+              *syms.joint_torques, slice=(0, -1))
 
     if WANG != 0:
         ang_vals = extract_values(prob, free, *syms.joint_angles,
@@ -431,12 +435,14 @@ tor = extract_values(prob, solution, *syms.joint_torques,
                                             NUM_NODES-1).transpose()
 dat = ang_data.reshape(num_angles, NUM_NODES-1).transpose()
 
+# TODO : Double check this construction.
 # construct a right side full gait cycle trajectory
 ang = np.rad2deg(np.vstack((ang[:, 0:3], ang[:, 3:6], ang[1, 0:3])))
 tor = np.vstack((tor[:, 0:3], tor[:, 3:6], tor[1, 0:3]))
 dat = np.rad2deg(np.vstack((dat[:, 0:3], dat[:, 3:6], dat[1, 0:3])))
 t = np.arange(2*NUM_NODES-1) * h
 
+# TODO : Change this to use the Gait2D conventions.
 # use Winter's sign convention (knee flexion angle
 # and hip/ankle extension torque)
 ang[:, 1] = -ang[:, 1]
@@ -447,6 +453,7 @@ tor[:, [0, 2]] = -tor[:, [0, 2]]
 tor_meas, grf_sol, grf_meas = None, None, None
 if WMAR != 0:
     # TODO : Extract the measured joint torques from the Winter's data also.
+    # TODO : Update these names to match Gait2D conventions.
     tor_cols = [
         'Right.Hip.Flexion.Moment',
         'Right.Knee.Flexion.Moment',
