@@ -435,39 +435,28 @@ tor = extract_values(prob, solution, *syms.joint_torques,
                                             NUM_NODES-1).transpose()
 dat = ang_data.reshape(num_angles, NUM_NODES-1).transpose()
 
-# TODO : Double check this construction.
 # construct a right side full gait cycle trajectory
 ang = np.rad2deg(np.vstack((ang[:, 0:3], ang[:, 3:6], ang[1, 0:3])))
 tor = np.vstack((tor[:, 0:3], tor[:, 3:6], tor[1, 0:3]))
 dat = np.rad2deg(np.vstack((dat[:, 0:3], dat[:, 3:6], dat[1, 0:3])))
 t = np.arange(2*NUM_NODES-1) * h
 
-# TODO : Change this to use the Gait2D conventions.
-# use Winter's sign convention (knee flexion angle
-# and hip/ankle extension torque)
-ang[:, 1] = -ang[:, 1]
-dat[:, 1] = -dat[:, 1]
-tor[:, [0, 2]] = -tor[:, [0, 2]]
-
 # Generate plots and animations
 tor_meas, grf_sol, grf_meas = None, None, None
-if WMAR != 0:
+if not USE_WINTER_DATA:
     # TODO : Extract the measured joint torques from the Winter's data also.
-    # TODO : Update these names to match Gait2D conventions.
     tor_cols = [
         'Right.Hip.Flexion.Moment',
-        'Right.Knee.Flexion.Moment',
-        'Right.Ankle.PlantarFlexion.Moment',
+        'Right.Knee.Extension.Moment',
+        'Right.Ankle.DorsiFlexion.Moment',
         'Left.Hip.Flexion.Moment',
-        'Left.Knee.Flexion.Moment',
-        'Left.Ankle.PlantarFlexion.Moment',
+        'Left.Knee.Extension.Moment',
+        'Left.Ankle.DorsiFlexion.Moment',
     ]
     tor_meas = kinetic_df[tor_cols].values
     tor_meas = np.vstack((tor_meas[:, 0:3],
                           tor_meas[:, 3:6],
                           tor_meas[1, 0:3]))
-    tor_meas[:, 0] = -tor_meas[:, 0]  # hip
-    tor_meas[:, 1] = -tor_meas[:, 1]  # knee
 
 if WGRF != 0:
     # TODO : Extract the GRFs from the Winter's data also.

@@ -883,27 +883,30 @@ def load_sample_data(num_nodes, gait_cycle_number=10):
 
 def plot_joint_comparison(t, angles, torques, angles_meas, torques_meas=None,
                           grf=None, grf_meas=None):
-    """
+    """Plots the optimization solution alongside the measurement data.
+
     Parameters
     ==========
     t : array_like, shape(N, )
         Time in seconds.
     angles : array_like, shape(N, 3)
-        hip flexion, knee flexion, ankle dorsiflexion
+        hip flexion, knee extension, ankle dorsiflexion
     torques : array_like, shape(N, 3)
-        hip extension, knee extension, ankle plantarflexion
+        hip flexion, knee extension, ankle dorsiflexion
     angles_meas : array_like, shape(N, 3)
-        hip flexion, knee flexion, ankle dorsiflexion
+        hip flexion, knee extension, ankle dorsiflexion
     torques_meas : array_like, shape(N, 3), optional
-        hip extension, knee extension, ankle plantarflexion
-    grf : array_like, shape(N, 2)
+        hip flexion, knee extension, ankle dorsiflexion
+    grf : array_like, shape(N, 2), optional
         horizontal, vertical
-    grf_meas : array_like, shape(N, 2)
+    grf_meas : array_like, shape(N, 2), optional
         horizontal, vertical
 
     Returns
     =======
-    axes : shape(2,)
+    axes : shape(2,) or shape(3,)
+        First axis contains the angles, second axis contains the joint torques,
+        third axis contains the ground reaction forces.
 
     """
     if grf is not None:
@@ -913,7 +916,7 @@ def plot_joint_comparison(t, angles, torques, angles_meas, torques_meas=None,
         fig, axes = plt.subplots(2, 1, figsize=(6.0, 9.0))
     colors = ('C0', 'C1', 'C2')
 
-    anglabels = ('hip flexion', 'knee flexion', 'ankle dorsiflexion')
+    anglabels = ('hip flexion', 'knee extension', 'ankle dorsiflexion')
     for ang, ang_meas, color, lab in zip(angles.T, angles_meas.T, colors,
                                          anglabels):
         axes[0].plot(t, ang, color=color, label=lab)
@@ -922,7 +925,7 @@ def plot_joint_comparison(t, angles, torques, angles_meas, torques_meas=None,
     axes[0].legend()
     axes[0].set_ylabel('Angle [deg]')
 
-    torlabels = ('hip extension', 'knee extension', 'ankle plantarflexion')
+    torlabels = ('hip flexion', 'knee extension', 'ankle dorsiflexion')
     for tor, color, lab in zip(torques.T, colors, torlabels):
         axes[1].plot(t, tor, color=color, label=lab)
     if torques_meas is not None:
