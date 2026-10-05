@@ -15,6 +15,76 @@ DATADIR = os.path.join(os.path.dirname(__file__), '..', 'data')
 GAITDATAPATH = os.path.join(DATADIR, GAITFILE)
 CALIBDATAPATH = os.path.join(DATADIR, CALIBFILE)
 
+# relevant markers used for tracking in Gait2D
+MARKER_LABELS = [
+    'LGTRO',
+    'LHEE',
+    'LLEK',
+    'LLM',
+    'LMT5',
+    'LSHO',
+    'LTOE',
+    'RGTRO',
+    'RHEE',
+    'RLEK',
+    'RLM',
+    'RMT5',
+    'RSHO',
+    'RTOE',
+]
+
+MARKER_COLS = []
+for s in MARKER_LABELS:
+    MARKER_COLS.append(s + '.PosX')
+    MARKER_COLS.append(s + '.PosY')
+
+# ordered to match Winters' data order
+ANG_COLS = [
+    'Right.Hip.Flexion.Angle',
+    'Right.Knee.Flexion.Angle',
+    'Right.Ankle.PlantarFlexion.Angle',
+    'Left.Hip.Flexion.Angle',
+    'Left.Knee.Flexion.Angle',
+    'Left.Ankle.PlantarFlexion.Angle',
+]
+
+# ordered for favorable two-column plotting
+GAIT2D_ANG_COLS = [
+    'Right.Hip.Flexion.Angle',
+    'Left.Hip.Flexion.Angle',
+    'Right.Knee.Extension.Angle',
+    'Left.Knee.Extension.Angle',
+    'Right.Ankle.DorsiFlexion.Angle',
+    'Left.Ankle.DorsiFlexion.Angle',
+]
+
+# ordered for favorable two-column plotting
+GRF_COLS = [
+    'FP2.ForX',  # Right, Anterior is +
+    'FP1.ForX',  # Left, Anterior is +
+    'FP2.ForY',  # Right, Superior is +
+    'FP1.ForY',  # Left, Superior is +
+]
+
+TOR_COLS = [
+    'Right.Hip.Flexion.Moment',
+    'Right.Knee.Flexion.Moment',
+    'Right.Ankle.PlantarFlexion.Moment',
+    'Left.Hip.Flexion.Moment',
+    'Left.Knee.Flexion.Moment',
+    'Left.Ankle.PlantarFlexion.Moment',
+]
+
+# ordered for favorable two-column plotting
+GAIT2D_TOR_COLS = [
+    'Right.Hip.Flexion.Moment',
+    'Left.Hip.Flexion.Moment',
+    'Right.Knee.Extension.Moment',
+    'Left.Knee.Extension.Moment',
+    'Right.Ankle.DorsiFlexion.Moment',
+    'Left.Ankle.DorsiFlexion.Moment',
+]
+
 
 def tile_standing(standing_sol, num_nodes, num_angles, num_states):
     """Returns an array with the standing solution repeated for every node.
@@ -409,16 +479,7 @@ def generate_grf_equations(symbolics):
     left_eqs = left_vars - left_force.to_matrix(N)[:2, :]
     equations = right_eqs.col_join(left_eqs)
 
-    # FP1 is left
-    # FP2 is right
-    labels = [
-        'FP2.ForX',
-        'FP2.ForY',
-        'FP1.ForX',
-        'FP1.ForY',
-    ]
-
-    return variables, equations, labels
+    return variables, equations, GRF_COLS
 
 
 def extract_gait_cycle(df, number):
@@ -462,7 +523,7 @@ def plot_points(df):
             y2 = df[marker_labels[i - 1] + '.PosY'].values[0:-1:4]
 
             ax.plot(np.vstack((x1, x2)), np.vstack((y1, y2)), color='black',
-                    alpha=0.5)
+                    alpha=0.2)
         if lab.startswith('R'):
             color = 'C0'
         else:
@@ -776,14 +837,7 @@ def load_sample_data(num_nodes, gait_cycle_number=10):
     # TODO : Extract from metadata so other trials can be used.
     walking_speed = 1.2  # nominal speed from trial 20 meta data
 
-    angles = [
-        'Right.Hip.Flexion.Angle',
-        'Right.Knee.Flexion.Angle',
-        'Right.Ankle.PlantarFlexion.Angle',
-        'Left.Hip.Flexion.Angle',
-        'Left.Knee.Flexion.Angle',
-        'Left.Ankle.PlantarFlexion.Angle',
-    ]
+    angles = ANG_COLS
     all_angles = angles + [
         'Right.Knee.Extension.Angle',
         'Right.Ankle.DorsiFlexion.Angle',
@@ -803,52 +857,10 @@ def load_sample_data(num_nodes, gait_cycle_number=10):
     df['Left.Ankle.PlantarFlexion.Angle'] = df['Left.Ankle.PlantarFlexion.Angle'] + np.pi/2
     ang_vals = df[all_angles].values.copy()
 
-    markers = [
-        'LGTRO.PosX',
-        'LGTRO.PosY',
-        'LHEE.PosX',
-        'LHEE.PosY',
-        'LLEK.PosX',
-        'LLEK.PosY',
-        'LLM.PosX',
-        'LLM.PosY',
-        'LMT5.PosX',
-        'LMT5.PosY',
-        'LSHO.PosX',
-        'LSHO.PosY',
-        'LTOE.PosX',
-        'LTOE.PosY',
-        'RGTRO.PosX',
-        'RGTRO.PosY',
-        'RHEE.PosX',
-        'RHEE.PosY',
-        'RLEK.PosX',
-        'RLEK.PosY',
-        'RLM.PosX',
-        'RLM.PosY',
-        'RMT5.PosX',
-        'RMT5.PosY',
-        'RSHO.PosX',
-        'RSHO.PosY',
-        'RTOE.PosX',
-        'RTOE.PosY',
-    ]
-    marker_vals = df[markers].values.copy()
+    marker_vals = df[MARKER_COLS].values.copy()
 
-    kinetics = [
-        'FP1.ForX',
-        'FP1.ForY',
-        'FP1.ForZ',
-        'FP2.ForX',
-        'FP2.ForY',
-        'FP2.ForZ',
-        'Right.Hip.Flexion.Moment',
-        'Right.Knee.Flexion.Moment',
-        'Right.Ankle.PlantarFlexion.Moment',
-        'Left.Hip.Flexion.Moment',
-        'Left.Knee.Flexion.Moment',
-        'Left.Ankle.PlantarFlexion.Moment',
-    ]
+    kinetics = GRF_COLS + TOR_COLS
+    # include the adjusted joint torques for matching to Gait2D:
     all_kinetics = kinetics + [
         'Right.Knee.Extension.Moment',
         'Right.Ankle.DorsiFlexion.Moment',
@@ -873,7 +885,7 @@ def load_sample_data(num_nodes, gait_cycle_number=10):
     interp_mark_arr = interp1d(full_time, marker_vals, axis=0)(time)
     interp_kinetic_arr = interp1d(full_time, kinetic_vals, axis=0)(time)
 
-    mark_df = pd.DataFrame(dict(zip(markers, interp_mark_arr.T)))
+    mark_df = pd.DataFrame(dict(zip(MARKER_COLS, interp_mark_arr.T)))
     kinetic_df = pd.DataFrame(dict(zip(all_kinetics, interp_kinetic_arr.T)))
     ang_df = pd.DataFrame(dict(zip(all_angles, interp_ang_vals.T)))
 
@@ -1235,31 +1247,7 @@ if __name__ == "__main__":
     _, _, num_ang, ang_data = load_winter_data(half_cycle_num_nodes,
                                                as_data_frame=True)
 
-    things = [
-        'FP2.ForX',  # right
-        'FP1.ForX',  # left
-
-        'FP2.ForY',
-        'FP1.ForY',
-
-        'Right.Hip.Flexion.Angle',
-        'Left.Hip.Flexion.Angle',
-
-        'Right.Knee.Extension.Angle',
-        'Left.Knee.Extension.Angle',
-
-        'Right.Ankle.DorsiFlexion.Angle',
-        'Left.Ankle.DorsiFlexion.Angle',
-
-        'Right.Hip.Flexion.Moment',
-        'Left.Hip.Flexion.Moment',
-
-        'Right.Knee.Extension.Moment',
-        'Left.Knee.Extension.Moment',
-
-        'Right.Ankle.DorsiFlexion.Moment',
-        'Left.Ankle.DorsiFlexion.Moment',
-    ]
+    things = GRF_COLS + GAIT2D_ANG_COLS + GAIT2D_TOR_COLS
     fig, axes = plt.subplots(len(things)//2, 2,
                              sharex=True,
                              sharey='row',
