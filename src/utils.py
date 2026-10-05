@@ -38,7 +38,7 @@ for s in MARKER_LABELS:
     MARKER_COLS.append(s + '.PosX')
     MARKER_COLS.append(s + '.PosY')
 
-# ordered to match Winters' data order
+# ordered to match Winter's data order
 ANG_COLS = [
     'Right.Hip.Flexion.Angle',
     'Right.Knee.Flexion.Angle',
@@ -66,7 +66,7 @@ GRF_COLS = [
     'FP1.ForY',  # Left, Superior is +
 ]
 
-# ordered to match Winters' data order
+# ordered to match Winter's data order
 TOR_COLS = [
     'Right.Hip.Flexion.Moment',
     'Right.Knee.Flexion.Moment',
@@ -584,13 +584,13 @@ def load_winter_data_frame(num_nodes=None, half_cycle=False,
         'vertical GRF': ('FP2.ForY', 1.0, 0.0),
         'horizontal GRF': ('FP2.ForX', 1.0, 0.0),
         'hip angle': ('Right.Hip.Flexion.Angle', 1.0, 0.0),
-        # Winters' knee is flexion, negate to extension
+        # Winter's knee is flexion, negate to extension
         'knee angle': ('Right.Knee.Extension.Angle', -1.0, 0.0),
         'ankle angle': ('Right.Ankle.DorsiFlexion.Angle', 1.0, 0.0),
-        # Winters' hip is extension, negate to flexion
+        # Winter's hip is extension, negate to flexion
         'hip moment': ('Right.Hip.Flexion.Moment', -1.0, 0.0),
         'knee moment': ('Right.Knee.Extension.Moment', 1.0, 0.0),
-        # Winters' ankle is plantarflexion, negate to dorsiflexion
+        # Winter's ankle is plantarflexion, negate to dorsiflexion
         'ankle moment': ('Right.Ankle.DorsiFlexion.Moment', -1.0, 0.0),
     }
 
@@ -721,16 +721,16 @@ def load_winter_data(num_nodes, as_data_frame=False):
     walking_speed = data[2, 2]
 
     # extract hip, knee, ankle angle (full gait cycle)
-    # NOTE : Winters' ankle angle = 0 reprsents nominal standing config.
+    # NOTE : Winter's ankle angle = 0 reprsents nominal standing config.
     ang = np.deg2rad(data[6:57, 4:7])
     kin = data[6:57, 7:12]  # [horizontal, vertical, hip, knee, ankle]
     # invert Winter's knee angle, to be compatible with our model
     ang[:, 1] = -ang[:, 1]
-    # invert Winters' hip and ankle moments to make them flexion & dorsiflexion
+    # invert Winter's hip and ankle moments to make them flexion & dorsiflexion
     kin[:, 2] = -kin[:, 2]
     kin[:, 4] = -kin[:, 4]
     # convert to N from N/kg
-    kin = 75.0*kin  # 75.0 kg from Winters' book
+    kin = 75.0*kin  # 75.0 kg from Winter's book
 
     # convert full gait cycle (one side) into a half gait cycle for both sides
     # and resample to num_nodes; take first 26 for the right and last 26 for
@@ -1238,13 +1238,13 @@ if __name__ == "__main__":
     # show that the full gait cycle generates correctly
     winter_full_df = load_winter_data_frame(num_nodes=full_cycle_num_nodes)
     winter_full_df.plot(x='Percent Gait Cycle', marker='.', subplots=True,
-                        layout=(-1, 2), title="Winters' Data as Full Cycle")
+                        layout=(-1, 2), title="Winter's Data as Full Cycle")
 
     # this creates the same output as load_winder_data()
     winter_df = load_winter_data_frame(num_nodes=half_cycle_num_nodes,
                                        half_cycle=True, drop_last_node=True)
 
-    # this loads Winters' data as per Ton's original implemetnation
+    # this loads Winter's data as per Ton's original implemetnation
     _, _, num_ang, ang_data = load_winter_data(half_cycle_num_nodes,
                                                as_data_frame=True)
 
