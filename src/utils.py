@@ -66,6 +66,7 @@ GRF_COLS = [
     'FP1.ForY',  # Left, Superior is +
 ]
 
+# ordered to match Winters' data order
 TOR_COLS = [
     'Right.Hip.Flexion.Moment',
     'Right.Knee.Flexion.Moment',
