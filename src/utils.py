@@ -1,4 +1,5 @@
 import os
+from warnings import simplefilter
 
 import numpy as np
 import pandas as pd
@@ -8,6 +9,11 @@ from scipy.interpolate import interp1d
 from pygait2d.segment import time_varying
 from symmeplot.matplotlib import Scene3D
 from matplotlib.animation import FuncAnimation
+
+# This is a really annoying, unncessary warning from newer Pandas versions,
+# disabling it. See:
+# https://stackoverflow.com/questions/68292862/performancewarning-dataframe-is-highly-fragmented-this-is-usually-the-result-o
+simplefilter(action="ignore", category=pd.errors.PerformanceWarning)
 
 GAITFILE = '020-longitudinal-perturbation-gait-cycles.csv'
 CALIBFILE = '020-calibration-pose.csv'
