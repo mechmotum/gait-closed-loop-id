@@ -54,8 +54,18 @@ ANG_COLS = [
     'Left.Ankle.PlantarFlexion.Angle',
 ]
 
-# ordered for favorable two-column plotting
+# ordered to match GAIT2D order: qb, qc, qd, qe, qf, qg
 GAIT2D_ANG_COLS = [
+    'Right.Hip.Flexion.Angle',
+    'Right.Knee.Extension.Angle',
+    'Right.Ankle.DorsiFlexion.Angle',
+    'Left.Hip.Flexion.Angle',
+    'Left.Knee.Extension.Angle',
+    'Left.Ankle.DorsiFlexion.Angle',
+]
+
+# ordered for favorable two-column plotting
+GAIT2D_PLOT_ANG_COLS = [
     'Right.Hip.Flexion.Angle',
     'Left.Hip.Flexion.Angle',
     'Right.Knee.Extension.Angle',
@@ -560,6 +570,8 @@ def load_winter_data_frame(num_nodes=None, half_cycle=False,
 
     Returns
     =======
+    duration : float
+        Duration of the full or half gait cycle: 0% to 100% or 50%, inclusive.
     df : DataFrame, shape(num_nodes or num_nodes - 1, 19)
         Index is range(num_nodes) for `drop_last_node=False` or range(num_nodes
         - 1) for `drop_last_node=True`. Column names are:
@@ -567,32 +579,32 @@ def load_winter_data_frame(num_nodes=None, half_cycle=False,
         1. 'Percent Gait Cycle'
         2. 'Time'
         3. 'Speed'
-        4. 'FP2.ForY' (right, vertical)
-        5. 'FP1.ForY' (left, vertical)
-        6. 'FP2.ForX' (right, longitudinal)
-        7. 'FP1.ForX' (left, longitudinal)
-        8. 'Right.Hip.Flexion.Angle'
-        9. 'Left.Hip.Flexion.Angle'
-        10. 'Right.Knee.Extension.Angle'
-        11. 'Left.Knee.Extension.Angle'
-        12. 'Right.Ankle.DorsiFlexion.Angle'
-        13. 'Left.Ankle.DorsiFlexion.Angle'
-        14. 'Right.Hip.Flexion.Moment'
-        15. 'Left.Hip.Flexion.Moment'
-        16. 'Right.Knee.Extension.Moment'
-        17. 'Left.Knee.Extension.Moment'
-        18. 'Right.Ankle.DorsiFlexion.Moment'
-        19. 'Left.Ankle.DorsiFlexion.Moment'
+        4. 'FP2.ForY' (right, vertical) [N]
+        5. 'FP1.ForY' (left, vertical) [N]
+        6. 'FP2.ForX' (right, longitudinal) [N]
+        7. 'FP1.ForX' (left, longitudinal) [N]
+        8. 'Right.Hip.Flexion.Angle' [rad]
+        9. 'Left.Hip.Flexion.Angle' [rad]
+        10. 'Right.Knee.Extension.Angle' [rad]
+        11. 'Left.Knee.Extension.Angle' [rad]
+        12. 'Right.Ankle.DorsiFlexion.Angle' [rad]
+        13. 'Left.Ankle.DorsiFlexion.Angle' [rad]
+        14. 'Right.Hip.Flexion.Moment' [Nm]
+        15. 'Left.Hip.Flexion.Moment' [Nm]
+        16. 'Right.Knee.Extension.Moment' [Nm]
+        17. 'Left.Knee.Extension.Moment' [Nm]
+        18. 'Right.Ankle.DorsiFlexion.Moment' [Nm]
+        19. 'Left.Ankle.DorsiFlexion.Moment' [Nm]
 
     """
     winter_moore_map = {
         # FP2 is the right force plate
         'vertical GRF': ('FP2.ForY', 1.0, 0.0),
         'horizontal GRF': ('FP2.ForX', 1.0, 0.0),
-        'hip angle': ('Right.Hip.Flexion.Angle', 1.0, 0.0),
+        'hip angle': ('Right.Hip.Flexion.Angle', np.pi/180.0, 0.0),
         # Winter's knee is flexion, negate to extension
-        'knee angle': ('Right.Knee.Extension.Angle', -1.0, 0.0),
-        'ankle angle': ('Right.Ankle.DorsiFlexion.Angle', 1.0, 0.0),
+        'knee angle': ('Right.Knee.Extension.Angle', -np.pi/180.0, 0.0),
+        'ankle angle': ('Right.Ankle.DorsiFlexion.Angle', np.pi/180.0, 0.0),
         # Winter's hip is extension, negate to flexion
         'hip moment': ('Right.Hip.Flexion.Moment', -1.0, 0.0),
         'knee moment': ('Right.Knee.Extension.Moment', 1.0, 0.0),
@@ -669,6 +681,7 @@ def load_winter_data_frame(num_nodes=None, half_cycle=False,
     if half_cycle:
         # returns [0% to 50%] inclusive
         df = df.iloc[:26, :]
+        duration = duration/2
 
     if num_nodes is not None:
         t0, tf = df['Time'].values[[0, -1]]
@@ -1254,7 +1267,7 @@ if __name__ == "__main__":
     _, _, num_ang, ang_data = load_winter_data(half_cycle_num_nodes,
                                                as_data_frame=True)
 
-    things = GRF_COLS + GAIT2D_ANG_COLS + GAIT2D_TOR_COLS
+    things = GRF_COLS + GAIT2D_PLOT_ANG_COLS + GAIT2D_TOR_COLS
     fig, axes = plt.subplots(len(things)//2, 2,
                              sharex=True,
                              sharey='row',
@@ -1268,8 +1281,12 @@ if __name__ == "__main__":
             ax.plot(ang_data['Percent Gait Cycle'], val, color='C0',
                     marker='o', label='Winter (original): ' + col)
         if col in winter_df:
-            ax.plot(winter_df['Percent Gait Cycle'], winter_df[col],
-                    color='C1', marker='.', label='Winter (new): ' + col)
+            if 'Angle' in col:
+                val = np.rad2deg(winter_df[col])
+            else:
+                val = winter_df[col]
+            ax.plot(winter_df['Percent Gait Cycle'], val, color='C1',
+                    marker='.', label='Winter (new): ' + col)
         if col in kinetic_df:
             ax.plot(sample_data_percent, kinetic_df[col], marker='.',
                     color='C2', label='Measured: ' + col)
