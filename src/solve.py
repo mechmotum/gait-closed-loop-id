@@ -23,6 +23,7 @@ import sympy as sm
 from solve_standing import find_standing_state
 from utils import (
     CALIBDATAPATH,
+    GAIT2D_ANG_COLS,
     DATADIR,
     SymbolDict,
     animate,
@@ -34,6 +35,7 @@ from utils import (
     generate_marker_equations,
     load_sample_data,
     load_winter_data,
+    load_winter_data_frame,
     plot_joint_comparison,
     plot_marker_comparison,
     tile_standing,
@@ -56,7 +58,7 @@ NUM_NODES = 50  # number of time nodes for the half period
 SEED = True  # set to integer value for specific seed value, True(=1), or False
 STIFFNESS_EXP = 2  # exponent of the contact stiffness force
 SUBJECT_MASS = 70.0  # kg of subject from trial 20, TODO: extract from metadata
-USE_WINTER_DATA = False  # if we want to track Winter's gait data
+USE_WINTER_DATA = True  # if we want to track Winter's gait data
 # Remove parts of the objective by setting to integer 0.
 WANG = 1000.0  # weight of mean squared angle tracking error (in rad)
 WGRF = 0  # weight of mean squared GRF tracking error (in Newtons)
@@ -69,12 +71,17 @@ WTOR = 1000.0  # weight of the mean squared torque (in kNm) objective
 if USE_WINTER_DATA:
     if WMAR != 0:
         raise ValueError("Winter's data does not have markers to track.")
-    duration, walking_speed, num_angles, ang_data = load_winter_data(NUM_NODES)
+    main_df = load_winter_data_frame(num_nodes=NUM_NODES, half_cycle=True)
+    duration = main_df['Time'].values[-1]
+    num_angles = len(GAIT2D_ANG_COLS)
+    ang_data = main_df[GAIT2D_ANG_COLS].values[:-1, :].transpose().flatten()
+    walking_speed = main_df['Speed'].mean()
 else:
     # load a gait cycle from our data (trial 20)
     (duration, walking_speed, num_angles, ang_data,
      marker_df, kinetic_df, ang_df, _, _) = load_sample_data(
          NUM_NODES, gait_cycle_number=GAIT_CYCLE_NUM)
+
 
 # Define the fixed time step in the simulation
 h = duration/(NUM_NODES - 1)
@@ -333,7 +340,7 @@ def obj_grad(prob, free):
 
 # Create a belt velocity signal v(t)
 traj_map = {
-    v: walking_speed*np.ones(NUM_NODES),
+    v: main_df['Speed'],
 }
 
 logger.info('Creating the opty problem.')
@@ -443,20 +450,22 @@ t = np.arange(2*NUM_NODES-1) * h
 
 # Generate plots and animations
 tor_meas, grf_sol, grf_meas = None, None, None
+tor_cols = [
+    'Right.Hip.Flexion.Moment',
+    'Right.Knee.Extension.Moment',
+    'Right.Ankle.DorsiFlexion.Moment',
+    'Left.Hip.Flexion.Moment',
+    'Left.Knee.Extension.Moment',
+    'Left.Ankle.DorsiFlexion.Moment',
+]
 if not USE_WINTER_DATA:
     # TODO : Extract the measured joint torques from the Winter's data also.
-    tor_cols = [
-        'Right.Hip.Flexion.Moment',
-        'Right.Knee.Extension.Moment',
-        'Right.Ankle.DorsiFlexion.Moment',
-        'Left.Hip.Flexion.Moment',
-        'Left.Knee.Extension.Moment',
-        'Left.Ankle.DorsiFlexion.Moment',
-    ]
     tor_meas = kinetic_df[tor_cols].values
-    tor_meas = np.vstack((tor_meas[:, 0:3],
-                          tor_meas[:, 3:6],
-                          tor_meas[1, 0:3]))
+else:
+    tor_meas = main_df[tor_cols].values[:-1, :]
+tor_meas = np.vstack((tor_meas[:, 0:3],
+                      tor_meas[:, 3:6],
+                      tor_meas[1, 0:3]))
 
 if WGRF != 0:
     # TODO : Extract the GRFs from the Winter's data also.
