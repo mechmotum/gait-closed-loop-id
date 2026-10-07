@@ -24,13 +24,16 @@ from solve_standing import find_standing_state
 from utils import (
     CALIBDATAPATH,
     DATADIR,
-    GAIT2D_ANG_COLS,
+    ANG_GAIT2D_COLS,
+    TOR_GAIT2D_COLS,
+    GRF_GAIT2D_COLS,
     SymbolDict,
     animate,
     body_segment_parameters_from_calibration,
     extract_values,
     extract_values_diff,
     fill_free,
+    full_gait_from_half,
     generate_grf_equations,
     generate_marker_equations,
     load_sample_data,
@@ -52,7 +55,7 @@ EOM_SCALE = 10.0  # scaling factor for eom
 GAIT_CYCLE_NUM = 45  # gait cycle to select from measurment data
 GENFORCE_SCALE = 0.001  # convert to kN and kNm
 LINEAR_SOLVER = 'mumps'  # passed to IPOPT mumps, spral, ma57, ma77, ma86, ma97
-MAKE_ANIMATION = False
+MAKE_ANIMATION = True
 NUM_NODES = 50  # number of time nodes for the half period
 SEED = True  # set to integer value for specific seed value, True(=1), or False
 STIFFNESS_EXP = 2  # exponent of the contact stiffness force
@@ -79,9 +82,8 @@ else:
 duration = df['Time'].values[-1]  # time @ 50%
 # Define the fixed time step in the simulation
 h = duration/(NUM_NODES - 1)
-
-num_angles = len(GAIT2D_ANG_COLS)
-ang_meas = df[GAIT2D_ANG_COLS].values[:-1, :].transpose().flatten()
+num_angles = len(ANG_GAIT2D_COLS)
+ang_meas = df[ANG_GAIT2D_COLS].values[:-1, :].transpose().flatten()
 walking_speed = df['Speed'].mean()
 
 # Derive the equations of motion
@@ -96,9 +98,9 @@ eom = syms.equations_of_motion
 logger.info('Number of operations in eom: {}'.format(sm.count_ops(eom)))
 
 # Do an overall scale, and then a unit conversion to kN and kNm
-eom = EOM_SCALE * eom
+eom = EOM_SCALE*eom
 for i in range(9):
-    eom[9+i] = GENFORCE_SCALE * eom[9+i]
+    eom[9+i] = GENFORCE_SCALE*eom[9+i]
 
 # Markers are in units meters, so no scaling applied
 if WMAR != 0:
@@ -432,35 +434,13 @@ for speed in np.linspace(0.1, walking_speed, num=10):
 
 # TODO : Move data preparation for plots into functions in utils.py
 # extract angles and torques
-ang = extract_values(prob, solution, *syms.joint_angles,
+ang_sol = extract_values(prob, solution, *syms.joint_angles,
+                         slice=(0, -1)).reshape(num_angles,
+                                                NUM_NODES-1).transpose()
+tor_sol = extract_values(prob, solution, *syms.joint_torques,
                      slice=(0, -1)).reshape(num_angles,
                                             NUM_NODES-1).transpose()
-tor = extract_values(prob, solution, *syms.joint_torques,
-                     slice=(0, -1)).reshape(num_angles,
-                                            NUM_NODES-1).transpose()
-dat = ang_meas.reshape(num_angles, NUM_NODES-1).transpose()
-tor_cols = [
-    'Right.Hip.Flexion.Moment',
-    'Right.Knee.Extension.Moment',
-    'Right.Ankle.DorsiFlexion.Moment',
-    'Left.Hip.Flexion.Moment',
-    'Left.Knee.Extension.Moment',
-    'Left.Ankle.DorsiFlexion.Moment',
-]
-tor_meas = df[tor_cols].values[:-1, :]
-grf_meas = df[grf_labels].values[:-1, :]
-
-# construct a right side full gait cycle trajectory
-ang = np.rad2deg(np.vstack((ang[:, 0:3], ang[:, 3:6], ang[1, 0:3])))
-tor = np.vstack((tor[:, 0:3], tor[:, 3:6], tor[1, 0:3]))
-dat = np.rad2deg(np.vstack((dat[:, 0:3], dat[:, 3:6], dat[1, 0:3])))
-tor_meas = np.vstack((tor_meas[:, 0:3], tor_meas[:, 3:6], tor_meas[1, 0:3]))
-grf_meas = np.vstack((grf_meas[:, 0:2], grf_meas[:, 2:4], grf_meas[1, 0:2]))
-t = np.arange(2*NUM_NODES-1) * h
-
 # Generate plots and animations
-grf_sol, grf_meas = None, None
-
 if WGRF != 0:
     # TODO : Extract the GRFs from the Winter's data also.
     # Frx(t), Fry(t), Flx(t), Fly(t)
@@ -468,10 +448,23 @@ if WGRF != 0:
     grf_sol = extract_values(prob, solution, *grf_syms,
                              slice=(0, -1)).reshape(len(grf_syms),
                                                     NUM_NODES-1).transpose()
-    grf_sol = np.vstack((grf_sol[:, 0:2], grf_sol[:, 2:4], grf_sol[1, 0:2]))
+    grf_sol = full_gait_from_half(grf_sol)
+else:
+    grf_sol = None
+ang_meas = df[ANG_GAIT2D_COLS].values[:-1, :]
+tor_meas = df[TOR_GAIT2D_COLS].values[:-1, :]
+grf_meas = df[GRF_GAIT2D_COLS].values[:-1, :]
 
-plot_joint_comparison(t, ang, tor, dat, torques_meas=tor_meas, grf=grf_sol,
-                      grf_meas=grf_meas)
+# construct a right side full gait cycle trajectory
+ang_sol = full_gait_from_half(ang_sol)
+tor_sol = full_gait_from_half(tor_sol)
+ang_meas = full_gait_from_half(ang_meas)
+tor_meas = full_gait_from_half(tor_meas)
+grf_meas = np.vstack((grf_meas[:, 0:2], grf_meas[:, 2:4], grf_meas[1, 0:2]))
+plot_time = np.arange(2*NUM_NODES-1)*h
+
+plot_joint_comparison(plot_time, ang_sol, tor_sol, ang_meas,
+                      torques_meas=tor_meas, grf=grf_sol, grf_meas=grf_meas)
 
 if WMAR != 0:
     plot_marker_comparison(marker_syms, marker_labels, df, prob, solution)

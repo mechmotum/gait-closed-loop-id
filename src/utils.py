@@ -54,34 +54,6 @@ ANG_COLS = [
     'Left.Ankle.PlantarFlexion.Angle',
 ]
 
-# ordered to match GAIT2D order: qb, qc, qd, qe, qf, qg
-GAIT2D_ANG_COLS = [
-    'Right.Hip.Flexion.Angle',
-    'Right.Knee.Extension.Angle',
-    'Right.Ankle.DorsiFlexion.Angle',
-    'Left.Hip.Flexion.Angle',
-    'Left.Knee.Extension.Angle',
-    'Left.Ankle.DorsiFlexion.Angle',
-]
-
-# ordered for favorable two-column plotting
-GAIT2D_PLOT_ANG_COLS = [
-    'Right.Hip.Flexion.Angle',
-    'Left.Hip.Flexion.Angle',
-    'Right.Knee.Extension.Angle',
-    'Left.Knee.Extension.Angle',
-    'Right.Ankle.DorsiFlexion.Angle',
-    'Left.Ankle.DorsiFlexion.Angle',
-]
-
-# ordered for favorable two-column plotting
-GRF_COLS = [
-    'FP2.ForX',  # Right, Anterior is +
-    'FP1.ForX',  # Left, Anterior is +
-    'FP2.ForY',  # Right, Superior is +
-    'FP1.ForY',  # Left, Superior is +
-]
-
 # ordered to match Winter's data order
 TOR_COLS = [
     'Right.Hip.Flexion.Moment',
@@ -92,8 +64,54 @@ TOR_COLS = [
     'Left.Ankle.PlantarFlexion.Moment',
 ]
 
+# ordered to match GAIT2D order: qb, qc, qd, qe, qf, qg
+ANG_GAIT2D_COLS = [
+    'Right.Hip.Flexion.Angle',
+    'Right.Knee.Extension.Angle',
+    'Right.Ankle.DorsiFlexion.Angle',
+    'Left.Hip.Flexion.Angle',
+    'Left.Knee.Extension.Angle',
+    'Left.Ankle.DorsiFlexion.Angle',
+]
+
+# ordered to match GAIT2D
+GRF_GAIT2D_COLS = [
+    'FP2.ForX',  # Right, Anterior is +
+    'FP2.ForY',  # Right, Superior is +
+    'FP1.ForX',  # Left, Anterior is +
+    'FP1.ForY',  # Left, Superior is +
+]
+
+# ordered to match gait2d order: Tb, Tc, Td, Te, Tf, Tg
+TOR_GAIT2D_COLS = [
+    'Right.Hip.Flexion.Moment',
+    'Right.Knee.Extension.Moment',
+    'Right.Ankle.DorsiFlexion.Moment',
+    'Left.Hip.Flexion.Moment',
+    'Left.Knee.Extension.Moment',
+    'Left.Ankle.DorsiFlexion.Moment',
+]
+
 # ordered for favorable two-column plotting
-GAIT2D_TOR_COLS = [
+ANG_PLOT_COLS = [
+    'Right.Hip.Flexion.Angle',
+    'Left.Hip.Flexion.Angle',
+    'Right.Knee.Extension.Angle',
+    'Left.Knee.Extension.Angle',
+    'Right.Ankle.DorsiFlexion.Angle',
+    'Left.Ankle.DorsiFlexion.Angle',
+]
+
+# ordered for favorable two-column plotting
+GRF_PLOT_COLS = [
+    'FP2.ForX',  # Right, Anterior is +
+    'FP1.ForX',  # Left, Anterior is +
+    'FP2.ForY',  # Right, Superior is +
+    'FP1.ForY',  # Left, Superior is +
+]
+
+# ordered for favorable two-column plotting
+TOR_PLOT_COLS = [
     'Right.Hip.Flexion.Moment',
     'Left.Hip.Flexion.Moment',
     'Right.Knee.Extension.Moment',
@@ -102,6 +120,32 @@ GAIT2D_TOR_COLS = [
     'Left.Ankle.DorsiFlexion.Moment',
 ]
 
+
+def full_gait_from_half(half):
+    """
+
+    Parameters
+    ==========
+    half : shape(n, m)
+        Array representing m trajectories spanning n percent gait points from
+        [0%, 50%). Not including the 50% node! For example:
+
+            [[rightA0,
+              rightA1,
+              rightAn-1,
+
+    Returns
+    =======
+    full : shape(2*n + 1, m)
+
+    """
+    n, m = half.shape
+
+    return np.vstack((
+        half[:, 0:m//2],  # right leg
+        half[:, m//2:m],  # left leg
+        half[1, 0:m//2],  # repeat second from right leg
+    ))
 
 def tile_standing(standing_sol, num_nodes, num_angles, num_states):
     """Returns an array with the standing solution repeated for every node.
@@ -496,7 +540,7 @@ def generate_grf_equations(symbolics):
     left_eqs = left_vars - left_force.to_matrix(N)[:2, :]
     equations = right_eqs.col_join(left_eqs)
 
-    return variables, equations, GRF_COLS
+    return variables, equations, GRF_GAIT2D_COLS
 
 
 def extract_gait_cycle(df, number):
@@ -878,7 +922,7 @@ def load_sample_data(num_nodes, gait_cycle_number=10, drop_last_node=True):
 
     marker_vals = df[MARKER_COLS].values.copy()
 
-    kinetics = GRF_COLS + TOR_COLS
+    kinetics = GRF_GAIT2D_COLS + TOR_COLS
     # include the adjusted joint torques for matching to Gait2D:
     all_kinetics = kinetics + [
         'Right.Knee.Extension.Moment',
@@ -948,7 +992,7 @@ def plot_joint_comparison(t, angles, torques, angles_meas, torques_meas=None,
         third axis contains the ground reaction forces.
 
     """
-    if grf is not None:
+    if (grf is not None) or (grf_meas is not None):
         fig, axes = plt.subplots(3, 1, figsize=(6.0, 9.0))
         grf_labels = ('horizontal', 'vertical')
     else:
@@ -958,8 +1002,8 @@ def plot_joint_comparison(t, angles, torques, angles_meas, torques_meas=None,
     anglabels = ('hip flexion', 'knee extension', 'ankle dorsiflexion')
     for ang, ang_meas, color, lab in zip(angles.T, angles_meas.T, colors,
                                          anglabels):
-        axes[0].plot(t, ang, color=color, label=lab)
-        axes[0].plot(t, ang_meas, color=color, linestyle='--',
+        axes[0].plot(t, np.rad2deg(ang), color=color, label=lab)
+        axes[0].plot(t, np.rad2deg(ang_meas), color=color, linestyle='--',
                      label=lab + ' measured')
     axes[0].legend()
     axes[0].set_ylabel('Angle [deg]')
@@ -975,6 +1019,7 @@ def plot_joint_comparison(t, angles, torques, angles_meas, torques_meas=None,
     axes[1].set_ylabel('Torque [Nm]')
     axes[1].set_xlabel('Time [s]')
 
+    grf_labels = ('horizontal', 'vertical')
     if grf is not None:
         for grf_com, color, lab in zip(grf.T, colors, grf_labels):
             axes[2].plot(t, grf_com, color=color, label=lab)
@@ -1257,8 +1302,8 @@ if __name__ == "__main__":
     # extracts a gait cycle from our PeerJ data
     sample_half_df = load_sample_data(half_cycle_num_nodes,
                                       gait_cycle_number=6)
-    sample_half_df[GRF_COLS + TOR_COLS].plot(marker='.', subplots=True,
-                                             title="Kinetics from PeerJ Data")
+    sample_half_df[GRF_PLOT_COLS + TOR_PLOT_COLS].plot(
+        marker='.', subplots=True, title="Kinetics from PeerJ Data")
 
     # show that the full gait cycle generates correctly
     winter_full_df = load_winter_data_frame(num_nodes=full_cycle_num_nodes)
@@ -1273,7 +1318,7 @@ if __name__ == "__main__":
     _, _, num_ang, ang_data = load_winter_data(half_cycle_num_nodes,
                                                as_data_frame=True)
 
-    things = GRF_COLS + GAIT2D_PLOT_ANG_COLS + GAIT2D_TOR_COLS
+    things = GRF_PLOT_COLS + ANG_PLOT_COLS + TOR_PLOT_COLS
     fig, axes = plt.subplots(len(things)//2, 2,
                              sharex=True,
                              sharey='row',
