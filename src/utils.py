@@ -122,7 +122,8 @@ TOR_PLOT_COLS = [
 
 
 def full_gait_from_half(half):
-    """
+    """Returns a full right side gait cycle constructed from a right & left
+    half gait cycle.
 
     Parameters
     ==========
@@ -130,13 +131,16 @@ def full_gait_from_half(half):
         Array representing m trajectories spanning n percent gait points from
         [0%, 50%). Not including the 50% node! For example:
 
-            [[rightA0,
-              rightA1,
-              rightAn-1,
+            [[rightA0,     rightB0,   leftA0,   leftB0]
+             [rightA1,     rightB1,   leftA1,   leftB1]
+             [...,             ...,      ...,      ...]
+             [rightAn-1, rightBn-1, leftAn-1, leftBn-1]]
 
     Returns
     =======
-    full : shape(2*n + 1, m)
+    full : shape(2*n + 1, m/2)
+        Array representing m/2 trajectores spanning 2n + 1 perecent gait points
+        from [0%, 100%).
 
     """
     n, m = half.shape
@@ -146,6 +150,7 @@ def full_gait_from_half(half):
         half[:, m//2:m],  # left leg
         half[1, 0:m//2],  # repeat second from right leg
     ))
+
 
 def tile_standing(standing_sol, num_nodes, num_angles, num_states):
     """Returns an array with the standing solution repeated for every node.
@@ -559,6 +564,7 @@ def plot_points(df):
     """Returns a plot axis showing a 2D view of the primary markers defining
     the walker moving through the gait cycle."""
 
+    # in order to making single path between points
     marker_labels = [
         'LSHO',
         'LGTRO',
@@ -728,16 +734,20 @@ def load_winter_data_frame(num_nodes=None, half_cycle=False,
         duration = duration/2
 
     if num_nodes is not None:
-        t0, tf = df['Time'].values[[0, -1]]
-        new_time = np.linspace(t0, tf, num=num_nodes)
+        time_step = duration/(num_nodes - 1)
+        if drop_last_node:
+            new_time = np.linspace(0.0, duration - time_step,
+                                   num=num_nodes - 1)
+        else:
+            new_time = np.linspace(0.0, duration, num=num_nodes)
         df = pd.DataFrame(interp1d(df['Time'], df.values, axis=0)(new_time),
                           columns=df.columns,
                           index=np.arange(len(new_time)))
-
-    if drop_last_node:
-        return df.iloc[:-1, :]
     else:
-        return df
+        if drop_last_node:
+            df = df.iloc[:-1, :]
+
+    return df
 
 
 def load_winter_data(num_nodes, as_data_frame=False):
@@ -948,6 +958,7 @@ def load_sample_data(num_nodes, gait_cycle_number=10, drop_last_node=True):
         percent_step = 50.0/(num_nodes - 1)
         percent = np.linspace(0.0, 50.0, num=num_nodes)
 
+    # TODO : Clean this up into a single interpolation.
     interp_ang_vals = interp1d(full_time, ang_vals, axis=0)(time)
     interp_mark_arr = interp1d(full_time, marker_vals, axis=0)(time)
     interp_kinetic_arr = interp1d(full_time, kinetic_vals, axis=0)(time)
