@@ -24,16 +24,20 @@ from solve_standing import find_standing_state
 from utils import (
     CALIBDATAPATH,
     DATADIR,
+    ANG_GAIT2D_COLS,
+    TOR_GAIT2D_COLS,
+    GRF_GAIT2D_COLS,
     SymbolDict,
     animate,
     body_segment_parameters_from_calibration,
     extract_values,
     extract_values_diff,
     fill_free,
+    full_gait_from_half,
     generate_grf_equations,
     generate_marker_equations,
     load_sample_data,
-    load_winter_data,
+    load_winter_data_frame,
     plot_joint_comparison,
     plot_marker_comparison,
     tile_standing,
@@ -64,20 +68,20 @@ WMAR = 0  # weight of mean squared marker tracking error (in meters)
 WREG = 1e-6  # weight of mean squared time derivatives
 WTOR = 1000.0  # weight of the mean squared torque (in kNm) objective
 
-# Load measurement data from Moore et al. 2015 or
+# Load half cycle [0%, 50%] measurement data from Moore et al. 2015 or
 # normative Winter's data unless tracking markers is requested.
 if USE_WINTER_DATA:
     if WMAR != 0:
         raise ValueError("Winter's data does not have markers to track.")
-    duration, walking_speed, num_angles, ang_data = load_winter_data(NUM_NODES)
+    df = load_winter_data_frame(num_nodes=NUM_NODES, half_cycle=True)
 else:
     # load a gait cycle from our data (trial 20)
-    (duration, walking_speed, num_angles, ang_data,
-     marker_df, kinetic_df) = load_sample_data(
-         NUM_NODES, gait_cycle_number=GAIT_CYCLE_NUM)
+    df = load_sample_data(NUM_NODES, gait_cycle_number=GAIT_CYCLE_NUM,
+                          drop_last_node=False)
 
-# Define the fixed time step in the simulation
-h = duration/(NUM_NODES - 1)
+duration = df['Time'].values[-1]  # time @ 50%
+h = duration/(NUM_NODES - 1)  # fixed time step in the simulation
+walking_speed = df['Speed'].mean()
 
 # Derive the equations of motion
 logger.info('Deriving the equations of motion.')
@@ -91,21 +95,24 @@ eom = syms.equations_of_motion
 logger.info('Number of operations in eom: {}'.format(sm.count_ops(eom)))
 
 # Do an overall scale, and then a unit conversion to kN and kNm
-eom = EOM_SCALE * eom
+eom = EOM_SCALE*eom
 for i in range(9):
-    eom[9+i] = GENFORCE_SCALE * eom[9+i]
+    eom[9+i] = GENFORCE_SCALE*eom[9+i]
+
+# Extract angle measurement data [0%, 50%) and flatten
+ang_meas = df[ANG_GAIT2D_COLS].values[:-1, :].transpose().flatten()
 
 # Markers are in units meters, so no scaling applied
 if WMAR != 0:
     marker_syms, marker_eqs, marker_labels = generate_marker_equations(syms)
     eom = eom.col_join(sm.Matrix(marker_eqs))
-    mar_data = marker_df[marker_labels].values.T.flatten()
+    mar_meas = df[marker_labels].values[:-1, :].T.flatten()
 
 # Ground reaction forces are in units Newtons
 if WGRF != 0:
     grf_syms, grf_eqs, grf_labels = generate_grf_equations(syms)
     eom = eom.col_join(grf_eqs)
-    grf_data = kinetic_df[grf_labels].values.T.flatten()
+    grf_meas = df[grf_labels].values[:-1, :].T.flatten()
 
 # The generalized coordinates are the hip lateral position qax and veritcal
 # position qay, the trunk angle with respect to vertical qa and the relative
@@ -119,7 +126,6 @@ qax, qay, qa, qb, qc, qd, qe, qf, qg = syms.coordinates
 uax, uay, ua, ub, uc, ud, ue, uf, ug = syms.speeds
 Tb, Tc, Td, Te, Tf, Tg, v = syms.specifieds
 reg_syms = syms.states + syms.joint_torques
-num_states = len(syms.states)
 
 # The constants are loaded from a file of realistic geometry, mass, inertia,
 # and foot deformation properties of an adult human.
@@ -243,8 +249,11 @@ def obj(prob, free, obj_show=False):
     and we don't want to include it twice.
 
     """
+    # NOTE : slice(0, -1) is used to avoid double counting the periodic
+    # duplicate values
+
     # minimize mean joint torque
-    tor_vals = extract_values(prob, free, *syms.joint_torques)
+    tor_vals = extract_values(prob, free, *syms.joint_torques, slice=(0, -1))
     f_tor = 1e-6*WTOR*np.sum(tor_vals**2)/len(tor_vals)
 
     f_tot = f_tor
@@ -253,7 +262,7 @@ def obj(prob, free, obj_show=False):
     if WANG != 0:
         ang_vals = extract_values(prob, free, *syms.joint_angles,
                                   slice=(0, -1))
-        f_ang = WANG*np.sum((ang_vals - ang_data)**2)/len(ang_vals)
+        f_ang = WANG*np.sum((ang_vals - ang_meas)**2)/len(ang_vals)
         f_tot += f_ang
 
     # smooth all regularization trajectories
@@ -266,13 +275,13 @@ def obj(prob, free, obj_show=False):
     if WMAR != 0:
         # vals -> shape(num_markers*(num_nodes - 1), 1)
         mar_vals = extract_values(prob, free, *marker_syms, slice=(0, -1))
-        f_mar = WMAR*np.sum((mar_vals - mar_data)**2)/len(mar_vals)
+        f_mar = WMAR*np.sum((mar_vals - mar_meas)**2)/len(mar_vals)
         f_tot += f_mar
 
     # minimize mean ground reaction force tracking error
     if WGRF != 0:
         grf_vals = extract_values(prob, free, *grf_syms, slice=(0, -1))
-        f_grf = WGRF*np.sum((grf_vals - grf_data)**2)/len(grf_vals)
+        f_grf = WGRF*np.sum((grf_vals - grf_meas)**2)/len(grf_vals)
         f_tot += f_grf
 
     if obj_show:
@@ -294,14 +303,15 @@ def obj_grad(prob, free):
 
     grad = np.zeros_like(free)
 
-    tor_vals = extract_values(prob, free, *syms.joint_torques)
-    prob.fill_free(grad, 2e-6*WTOR*tor_vals/len(tor_vals), *syms.joint_torques)
+    tor_vals = extract_values(prob, free, *syms.joint_torques, slice=(0, -1))
+    fill_free(prob, grad, 2e-6*WTOR*tor_vals/len(tor_vals),
+              *syms.joint_torques, slice=(0, -1))
 
     if WANG != 0:
         ang_vals = extract_values(prob, free, *syms.joint_angles,
                                   slice=(0, -1))
         fill_free(prob, grad,
-                  2.0*WANG*(ang_vals - ang_data)/len(ang_vals),
+                  2.0*WANG*(ang_vals - ang_meas)/len(ang_vals),
                   *syms.joint_angles, slice=(0, -1))
     if WREG != 0:
         # NOTE : The regularization should be added on top of the tor_vals and
@@ -315,13 +325,13 @@ def obj_grad(prob, free):
     if WMAR != 0:
         mar_vals = extract_values(prob, free, *marker_syms, slice=(0, -1))
         fill_free(prob, grad,
-                  2.0*WMAR*(mar_vals - mar_data)/len(mar_vals),
+                  2.0*WMAR*(mar_vals - mar_meas)/len(mar_vals),
                   *marker_syms, slice=(0, -1))
 
     if WGRF != 0:
         grf_vals = extract_values(prob, free, *grf_syms, slice=(0, -1))
         fill_free(prob, grad,
-                  2.0*WGRF*(grf_vals - grf_data)/len(grf_vals),
+                  2.0*WGRF*(grf_vals - grf_meas)/len(grf_vals),
                   *grf_syms, slice=(0, -1))
 
     return grad
@@ -329,7 +339,7 @@ def obj_grad(prob, free):
 
 # Create a belt velocity signal v(t)
 traj_map = {
-    v: walking_speed*np.ones(NUM_NODES),
+    v: df['Speed'].values,  # shape(NUM_NODES,)
 }
 
 logger.info('Creating the opty problem.')
@@ -380,7 +390,9 @@ if not os.path.exists(fname):
     standing_sol = find_standing_state()
 else:
     standing_sol = np.loadtxt(fname)
-initial_guess = tile_standing(standing_sol, NUM_NODES, num_angles, num_states)
+
+initial_guess = tile_standing(standing_sol, NUM_NODES, len(syms.joint_angles),
+                              len(syms.states))
 if WMAR != 0:
     # TODO : The marker positions could be calculated from the generalized
     # coordinates.
@@ -423,45 +435,12 @@ for speed in np.linspace(0.1, walking_speed, num=10):
 
 # TODO : Move data preparation for plots into functions in utils.py
 # extract angles and torques
-ang = extract_values(prob, solution, *syms.joint_angles,
-                     slice=(0, -1)).reshape(num_angles,
+ang_sol = extract_values(prob, solution, *syms.joint_angles,
+                         slice=(0, -1)).reshape(len(syms.joint_angles),
+                                                NUM_NODES-1).transpose()
+tor_sol = extract_values(prob, solution, *syms.joint_torques,
+                     slice=(0, -1)).reshape(len(syms.joint_torques),
                                             NUM_NODES-1).transpose()
-tor = extract_values(prob, solution, *syms.joint_torques,
-                     slice=(0, -1)).reshape(num_angles,
-                                            NUM_NODES-1).transpose()
-dat = ang_data.reshape(num_angles, NUM_NODES-1).transpose()
-
-# construct a right side full gait cycle trajectory
-ang = np.rad2deg(np.vstack((ang[:, 0:3], ang[:, 3:6], ang[1, 0:3])))
-tor = np.vstack((tor[:, 0:3], tor[:, 3:6], tor[1, 0:3]))
-dat = np.rad2deg(np.vstack((dat[:, 0:3], dat[:, 3:6], dat[1, 0:3])))
-t = np.arange(2*NUM_NODES-1) * h
-
-# use Winter's sign convention (knee flexion angle
-# and hip/ankle extension torque)
-ang[:, 1] = -ang[:, 1]
-dat[:, 1] = -dat[:, 1]
-tor[:, [0, 2]] = -tor[:, [0, 2]]
-
-# Generate plots and animations
-tor_meas, grf_sol, grf_meas = None, None, None
-if WMAR != 0:
-    # TODO : Extract the measured joint torques from the Winter's data also.
-    tor_cols = [
-        'Right.Hip.Flexion.Moment',
-        'Right.Knee.Flexion.Moment',
-        'Right.Ankle.PlantarFlexion.Moment',
-        'Left.Hip.Flexion.Moment',
-        'Left.Knee.Flexion.Moment',
-        'Left.Ankle.PlantarFlexion.Moment',
-    ]
-    tor_meas = kinetic_df[tor_cols].values
-    tor_meas = np.vstack((tor_meas[:, 0:3],
-                          tor_meas[:, 3:6],
-                          tor_meas[1, 0:3]))
-    tor_meas[:, 0] = -tor_meas[:, 0]  # hip
-    tor_meas[:, 1] = -tor_meas[:, 1]  # knee
-
 if WGRF != 0:
     # TODO : Extract the GRFs from the Winter's data also.
     # Frx(t), Fry(t), Flx(t), Fly(t)
@@ -469,16 +448,30 @@ if WGRF != 0:
     grf_sol = extract_values(prob, solution, *grf_syms,
                              slice=(0, -1)).reshape(len(grf_syms),
                                                     NUM_NODES-1).transpose()
-    grf_sol = np.vstack((grf_sol[:, 0:2], grf_sol[:, 2:4], grf_sol[1, 0:2]))
-    grf_meas = kinetic_df[grf_labels].values
-    grf_meas = np.vstack((grf_meas[:, 0:2], grf_meas[:, 2:4], grf_meas[1, 0:2]))
+    grf_sol = full_gait_from_half(grf_sol)
+else:
+    grf_sol = None
 
-plot_joint_comparison(t, ang, tor, dat, torques_meas=tor_meas, grf=grf_sol,
-                      grf_meas=grf_meas)
+ang_meas = df[ANG_GAIT2D_COLS].values[:-1, :]
+tor_meas = df[TOR_GAIT2D_COLS].values[:-1, :]
+grf_meas = df[GRF_GAIT2D_COLS].values[:-1, :]
+
+# construct a right side full gait cycle trajectory
+plot_time = np.linspace(0.0, duration - h, num=2*NUM_NODES - 1)
+
+ang_sol = full_gait_from_half(ang_sol)
+tor_sol = full_gait_from_half(tor_sol)
+
+ang_meas = full_gait_from_half(ang_meas)
+tor_meas = full_gait_from_half(tor_meas)
+grf_meas = full_gait_from_half(grf_meas)
+
+# Generate plots and animations
+plot_joint_comparison(plot_time, ang_sol, tor_sol, ang_meas,
+                      torques_meas=tor_meas, grf=grf_sol, grf_meas=grf_meas)
 
 if WMAR != 0:
-    plot_marker_comparison(marker_syms, marker_labels, marker_df, prob,
-                           solution)
+    plot_marker_comparison(marker_syms, marker_labels, df, prob, solution)
 
 plt.show()
 
