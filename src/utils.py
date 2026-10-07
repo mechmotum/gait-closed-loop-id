@@ -797,7 +797,7 @@ def load_winter_data(num_nodes, as_data_frame=False):
     return duration, walking_speed, num_angles, ang_data
 
 
-def load_sample_data(num_nodes, gait_cycle_number=10):
+def load_sample_data(num_nodes, gait_cycle_number=10, drop_last_node=True):
     """Returns interpolated data from a measurement file formulated as a single
     gait cycle of both legs from 0% to ``50%*(1 - 1/(N - 1))`` in the same
     format as ``load_winter_data()`` (Gait2D sign conventions).
@@ -854,6 +854,8 @@ def load_sample_data(num_nodes, gait_cycle_number=10):
     # interpolate to find the half cycle duration (at exactly 50%)
     duration = np.interp(0.5, full_percent, full_time)
 
+    speed = df[['RightBeltSpeed', 'LeftBeltSpeed']].mean(axis=1)
+
     # TODO : Extract from metadata so other trials can be used.
     walking_speed = 1.2  # nominal speed from trial 20 meta data
 
@@ -896,21 +898,32 @@ def load_sample_data(num_nodes, gait_cycle_number=10):
     # NOTE : It is fraught to use arange() for constructing these due to
     # numerical stability of arange(), use linspace()!
     time_step = duration/(num_nodes - 1)
-    time = np.linspace(0.0, duration - time_step, num=num_nodes - 1)
-    percent_step = 50.0/(num_nodes - 1)
-    percent = np.linspace(0.0, 50.0 - percent_step, num=num_nodes - 1)
+    if drop_last_node:
+        time = np.linspace(0.0, duration - time_step, num=num_nodes - 1)
+        percent_step = 50.0/(num_nodes - 1)
+        percent = np.linspace(0.0, 50.0 - percent_step, num=num_nodes - 1)
+    else:
+        time = np.linspace(0.0, duration, num=num_nodes)
+        percent_step = 50.0/(num_nodes - 1)
+        percent = np.linspace(0.0, 50.0, num=num_nodes)
 
     interp_ang_arr = interp1d(full_time, ang_arr, axis=0)(time)
     interp_ang_vals = interp1d(full_time, ang_vals, axis=0)(time)
     interp_mark_arr = interp1d(full_time, marker_vals, axis=0)(time)
     interp_kinetic_arr = interp1d(full_time, kinetic_vals, axis=0)(time)
+    interp_speed = interp1d(full_time, speed.values, axis=0)(time)
 
     mark_df = pd.DataFrame(dict(zip(MARKER_COLS, interp_mark_arr.T)))
     kinetic_df = pd.DataFrame(dict(zip(all_kinetics, interp_kinetic_arr.T)))
     ang_df = pd.DataFrame(dict(zip(all_angles, interp_ang_vals.T)))
+    speed_df = pd.DataFrame({'Speed': interp_speed})
+    percent_df = pd.DataFrame({'Percent Gait Cycle': percent})
+
+    main_df = pd.concat((percent_df, speed_df, ang_df, mark_df, kinetic_df),
+                        axis=1)
 
     return (duration, walking_speed, len(angles), interp_ang_arr.T.flatten(),
-            mark_df, kinetic_df, ang_df, time, percent)
+            mark_df, kinetic_df, ang_df, time, percent, main_df)
 
 
 def plot_joint_comparison(t, angles, torques, angles_meas, torques_meas=None,
@@ -1249,7 +1262,7 @@ if __name__ == "__main__":
 
     # extracts a gait cycle from our PeerJ data
     (duration, walking_speed, num_angles, ang_data, marker_df,
-     kinetic_df, ang_df, _, sample_data_percent) = load_sample_data(
+     kinetic_df, ang_df, _, sample_data_percent, _) = load_sample_data(
          half_cycle_num_nodes, gait_cycle_number=6)
     kinetic_df.plot(marker='.', subplots=True,
                     title="Kinetics from PeerJ Data")

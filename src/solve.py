@@ -34,7 +34,6 @@ from utils import (
     generate_grf_equations,
     generate_marker_equations,
     load_sample_data,
-    load_winter_data,
     load_winter_data_frame,
     plot_joint_comparison,
     plot_marker_comparison,
@@ -58,7 +57,7 @@ NUM_NODES = 50  # number of time nodes for the half period
 SEED = True  # set to integer value for specific seed value, True(=1), or False
 STIFFNESS_EXP = 2  # exponent of the contact stiffness force
 SUBJECT_MASS = 70.0  # kg of subject from trial 20, TODO: extract from metadata
-USE_WINTER_DATA = True  # if we want to track Winter's gait data
+USE_WINTER_DATA = False  # if we want to track Winter's gait data
 # Remove parts of the objective by setting to integer 0.
 WANG = 1000.0  # weight of mean squared angle tracking error (in rad)
 WGRF = 0  # weight of mean squared GRF tracking error (in Newtons)
@@ -79,8 +78,10 @@ if USE_WINTER_DATA:
 else:
     # load a gait cycle from our data (trial 20)
     (duration, walking_speed, num_angles, ang_data,
-     marker_df, kinetic_df, ang_df, _, _) = load_sample_data(
-         NUM_NODES, gait_cycle_number=GAIT_CYCLE_NUM)
+     marker_df, kinetic_df, ang_df, _, _, main_df) = load_sample_data(
+         NUM_NODES, gait_cycle_number=GAIT_CYCLE_NUM, drop_last_node=False)
+    ang_data = main_df[GAIT2D_ANG_COLS].values[:-1, :].transpose().flatten()
+    walking_speed = main_df['Speed'].mean()
 
 
 # Define the fixed time step in the simulation
@@ -112,7 +113,7 @@ if WMAR != 0:
 if WGRF != 0:
     grf_syms, grf_eqs, grf_labels = generate_grf_equations(syms)
     eom = eom.col_join(grf_eqs)
-    grf_data = kinetic_df[grf_labels].values.T.flatten()
+    grf_data = kinetic_df[grf_labels].values[:-1, :].T.flatten()
 
 # The generalized coordinates are the hip lateral position qax and veritcal
 # position qay, the trunk angle with respect to vertical qa and the relative
@@ -460,7 +461,7 @@ tor_cols = [
 ]
 if not USE_WINTER_DATA:
     # TODO : Extract the measured joint torques from the Winter's data also.
-    tor_meas = kinetic_df[tor_cols].values
+    tor_meas = kinetic_df[tor_cols].values[:-1, :]
 else:
     tor_meas = main_df[tor_cols].values[:-1, :]
 tor_meas = np.vstack((tor_meas[:, 0:3],
@@ -475,7 +476,7 @@ if WGRF != 0:
                              slice=(0, -1)).reshape(len(grf_syms),
                                                     NUM_NODES-1).transpose()
     grf_sol = np.vstack((grf_sol[:, 0:2], grf_sol[:, 2:4], grf_sol[1, 0:2]))
-    grf_meas = kinetic_df[grf_labels].values
+    grf_meas = kinetic_df[grf_labels].values[:-1, :]
     grf_meas = np.vstack((grf_meas[:, 0:2], grf_meas[:, 2:4], grf_meas[1, 0:2]))
 
 plot_joint_comparison(t, ang, tor, dat, torques_meas=tor_meas, grf=grf_sol,
