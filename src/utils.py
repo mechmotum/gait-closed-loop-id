@@ -856,9 +856,6 @@ def load_sample_data(num_nodes, gait_cycle_number=10, drop_last_node=True):
 
     speed = df[['RightBeltSpeed', 'LeftBeltSpeed']].mean(axis=1)
 
-    # TODO : Extract from metadata so other trials can be used.
-    walking_speed = 1.2  # nominal speed from trial 20 meta data
-
     angles = ANG_COLS
     all_angles = angles + [
         'Right.Knee.Extension.Angle',
@@ -907,7 +904,6 @@ def load_sample_data(num_nodes, gait_cycle_number=10, drop_last_node=True):
         percent_step = 50.0/(num_nodes - 1)
         percent = np.linspace(0.0, 50.0, num=num_nodes)
 
-    interp_ang_arr = interp1d(full_time, ang_arr, axis=0)(time)
     interp_ang_vals = interp1d(full_time, ang_vals, axis=0)(time)
     interp_mark_arr = interp1d(full_time, marker_vals, axis=0)(time)
     interp_kinetic_arr = interp1d(full_time, kinetic_vals, axis=0)(time)
@@ -916,14 +912,12 @@ def load_sample_data(num_nodes, gait_cycle_number=10, drop_last_node=True):
     mark_df = pd.DataFrame(dict(zip(MARKER_COLS, interp_mark_arr.T)))
     kinetic_df = pd.DataFrame(dict(zip(all_kinetics, interp_kinetic_arr.T)))
     ang_df = pd.DataFrame(dict(zip(all_angles, interp_ang_vals.T)))
-    speed_df = pd.DataFrame({'Speed': interp_speed})
-    percent_df = pd.DataFrame({'Percent Gait Cycle': percent})
+    more_df = pd.DataFrame({'Time': time, 'Speed': interp_speed,
+                            'Percent Gait Cycle': percent})
 
-    main_df = pd.concat((percent_df, speed_df, ang_df, mark_df, kinetic_df),
-                        axis=1)
+    main_df = pd.concat((more_df, ang_df, mark_df, kinetic_df), axis=1)
 
-    return (duration, walking_speed, len(angles), interp_ang_arr.T.flatten(),
-            mark_df, kinetic_df, ang_df, time, percent, main_df)
+    return main_df
 
 
 def plot_joint_comparison(t, angles, torques, angles_meas, torques_meas=None,
@@ -1261,11 +1255,10 @@ if __name__ == "__main__":
     full_cycle_num_nodes = 121
 
     # extracts a gait cycle from our PeerJ data
-    (duration, walking_speed, num_angles, ang_data, marker_df,
-     kinetic_df, ang_df, _, sample_data_percent, _) = load_sample_data(
-         half_cycle_num_nodes, gait_cycle_number=6)
-    kinetic_df.plot(marker='.', subplots=True,
-                    title="Kinetics from PeerJ Data")
+    sample_half_df = load_sample_data(half_cycle_num_nodes,
+                                      gait_cycle_number=6)
+    sample_half_df[GRF_COLS + TOR_COLS].plot(marker='.', subplots=True,
+                                             title="Kinetics from PeerJ Data")
 
     # show that the full gait cycle generates correctly
     winter_full_df = load_winter_data_frame(num_nodes=full_cycle_num_nodes)
@@ -1286,26 +1279,20 @@ if __name__ == "__main__":
                              sharey='row',
                              layout='constrained')
     for ax, col in zip(axes.flatten(), things):
+        if 'Angle' in col:
+            conv = np.rad2deg
+        else:
+            conv = lambda x: x
         if col in ang_data:
-            if 'Angle' in col:
-                val = np.rad2deg(ang_data[col])
-            else:
-                val = ang_data[col]
-            ax.plot(ang_data['Percent Gait Cycle'], val, color='C0',
-                    marker='o', label='Winter (original): ' + col)
+            ax.plot(ang_data['Percent Gait Cycle'], conv(ang_data[col]),
+                    color='C0', marker='o', label='Winter (original): ' + col)
         if col in winter_df:
-            if 'Angle' in col:
-                val = np.rad2deg(winter_df[col])
-            else:
-                val = winter_df[col]
-            ax.plot(winter_df['Percent Gait Cycle'], val, color='C1',
-                    marker='.', label='Winter (new): ' + col)
-        if col in kinetic_df:
-            ax.plot(sample_data_percent, kinetic_df[col], marker='.',
-                    color='C2', label='Measured: ' + col)
-        if col in ang_df:
-            ax.plot(sample_data_percent, np.rad2deg(ang_df[col]), color='C2',
-                    marker='.', label='Measured: ' + col)
+            ax.plot(winter_df['Percent Gait Cycle'], conv(winter_df[col]),
+                    color='C1', marker='.', label='Winter (new): ' + col)
+        if col in sample_half_df:
+            ax.plot(sample_half_df['Percent Gait Cycle'],
+                    conv(sample_half_df[col]), marker='.', color='C2',
+                    label='Measured: ' + col)
         ax.axvline(50.0, color='black')  # 50%
         ax.legend(fontsize=6)
 
