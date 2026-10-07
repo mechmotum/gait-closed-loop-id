@@ -620,8 +620,6 @@ def load_winter_data_frame(num_nodes=None, half_cycle=False,
 
     Returns
     =======
-    duration : float
-        Duration of the full or half gait cycle: 0% to 100% or 50%, inclusive.
     df : DataFrame, shape(num_nodes or num_nodes - 1, 19)
         Index is range(num_nodes) for `drop_last_node=False` or range(num_nodes
         - 1) for `drop_last_node=True`. Column names are:
@@ -866,39 +864,29 @@ def load_sample_data(num_nodes, gait_cycle_number=10, drop_last_node=True):
 
     Returns
     =======
-    duration : float
-        Time in seconds corresponding to the duration of 50% of the gait cycle.
-    walking_speed : float
-        Average walking speed in meters per second.
-    num_angles : int
-        Numer of angles: 6. (r & l hip, knee, ankle)
-    ang_data : ndarray, shape((num_nodes-1)*num_angles,)
-        Angle data in radians linear interpolated at the times corresponding to
-        the number of nodes::
+    df : DataFrame, shape(num_nodes or num_nodes - 1, 19)
+        Index is range(num_nodes) for `drop_last_node=False` or range(num_nodes
+        - 1) for `drop_last_node=True`. Column names are:
 
-            [rhip0, ..., rhipN-2,  # flexion
-             rknee0, ..., rkneeN-2,  # extension
-             rankle0, ..., rankleN-2,  # dorsiflexion
-             lhip0, ..., lhipN-2,  # flexion
-             lknee0, ..., lkneeN-2,  # extension
-             lankle0, ..., lankleN-2]  # dorsiflexion
-
-    mark_df : DataFrame
-        Data frame containing the marker trajectories.
-    kinetic_df : DataFrame
-        Contains the kinetic (forces, moments) trajectories. Postive moments
-        for gait2d model are:
-
-            - hip flexion
-            - knee extension
-            - ankle dorsiflexion
-
-    ang_df : DataFrame
-        Contains the joint angle trajectores in the Gait2D sign convention.
-    time : ndarray, shape(num_nodes - 1,)
-        Time values corresponding to the output gait data.
-    percent : ndarray, shape(num_nodes - 1,)
-        Gait cycle percent values corresponding to the output gait data.
+        1. 'Percent Gait Cycle'
+        2. 'Time'
+        3. 'Speed'
+        4. 'FP2.ForY' (right, vertical) [N]
+        5. 'FP1.ForY' (left, vertical) [N]
+        6. 'FP2.ForX' (right, longitudinal) [N]
+        7. 'FP1.ForX' (left, longitudinal) [N]
+        8. 'Right.Hip.Flexion.Angle' [rad]
+        9. 'Left.Hip.Flexion.Angle' [rad]
+        10. 'Right.Knee.Extension.Angle' [rad]
+        11. 'Left.Knee.Extension.Angle' [rad]
+        12. 'Right.Ankle.DorsiFlexion.Angle' [rad]
+        13. 'Left.Ankle.DorsiFlexion.Angle' [rad]
+        14. 'Right.Hip.Flexion.Moment' [Nm]
+        15. 'Left.Hip.Flexion.Moment' [Nm]
+        16. 'Right.Knee.Extension.Moment' [Nm]
+        17. 'Left.Knee.Extension.Moment' [Nm]
+        18. 'Right.Ankle.DorsiFlexion.Moment' [Nm]
+        19. 'Left.Ankle.DorsiFlexion.Moment' [Nm]
 
     """
     df = extract_gait_cycle(pd.read_csv(GAITDATAPATH), gait_cycle_number)
