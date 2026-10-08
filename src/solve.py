@@ -53,7 +53,7 @@ logging.basicConfig(
 
 # Primary settings (capitalize)
 EOM_SCALE = 10.0  # scaling factor for eom
-GAIT_CYCLE_NUM = 145  # gait cycle to select from measurment data
+GAIT_CYCLE_NUM = 125  # gait cycle to select from measurment data
 GENFORCE_SCALE = 0.001  # convert to kN and kNm
 LINEAR_SOLVER = 'ma57'  # passed to IPOPT mumps, spral, ma57, ma77, ma86, ma97
 MAKE_ANIMATION = True
@@ -61,10 +61,10 @@ NUM_NODES = 50  # number of time nodes for the half period
 SEED = True  # set to integer value for specific seed value, True(=1), or False
 STIFFNESS_EXP = 2  # exponent of the contact stiffness force
 SUBJECT_MASS = 70.0  # kg of subject from trial 20, TODO: extract from metadata
-USE_WINTER_DATA = True  # if we want to track Winter's gait data
+USE_WINTER_DATA = False  # if we want to track Winter's gait data
 # Remove parts of the objective by setting to integer 0.
 WANG = 1000.0  # weight of mean squared angle tracking error (in rad)
-WGRF = 0.001  # weight of mean squared GRF tracking error (in Newtons)
+WGRF = 0  # weight of mean squared GRF tracking error (in Newtons)
 WMAR = 0  # weight of mean squared marker tracking error (in meters)
 WREG = 1e-6  # weight of mean squared time derivatives
 WTOR = 1000.0  # weight of the mean squared torque (in kNm) objective
@@ -457,7 +457,7 @@ else:
             traj_map[v])  # belt speed shape(1, N)
         ),
         np.repeat(np.atleast_2d(np.array(list(par_map.values()))).T,
-                  xs.shape[0], axis=1)  # p, shape(r, N)
+                  xs.shape[1], axis=1)  # p, shape(r, N)
     )  # shape(N, 4)
     grf_sol = grf_sol[:-1, :]  # shape(N-1, 4)
 
@@ -468,17 +468,18 @@ grf_meas = df[GRF_GAIT2D_COLS].values[:-1, :]
 # construct a right side full gait cycle trajectory
 plot_time = np.linspace(0.0, duration - h, num=2*NUM_NODES - 1)
 
-ang_sol = full_gait_from_half(ang_sol)
-tor_sol = full_gait_from_half(tor_sol)
-grf_sol = full_gait_from_half(grf_sol)
+ang_sol_full = full_gait_from_half(ang_sol)
+tor_sol_full = full_gait_from_half(tor_sol)
+grf_sol_full = full_gait_from_half(grf_sol)
 
-ang_meas = full_gait_from_half(ang_meas)
-tor_meas = full_gait_from_half(tor_meas)
-grf_meas = full_gait_from_half(grf_meas)
+ang_meas_full = full_gait_from_half(ang_meas)
+tor_meas_full = full_gait_from_half(tor_meas)
+grf_meas_full = full_gait_from_half(grf_meas)
 
 # Generate plots and animations
-plot_joint_comparison(plot_time, ang_sol, tor_sol, ang_meas,
-                      torques_meas=tor_meas, grf=grf_sol, grf_meas=grf_meas)
+plot_joint_comparison(plot_time, ang_sol_full, tor_sol_full, ang_meas_full,
+                      torques_meas=tor_meas_full, grf=grf_sol_full,
+                      grf_meas=grf_meas_full)
 
 if WMAR != 0:
     plot_marker_comparison(marker_syms, marker_labels, df, prob, solution)
@@ -487,8 +488,8 @@ plt.show()
 
 if MAKE_ANIMATION:
     xs, rs, _ = prob.parse_free(solution)
-    times = prob.time_vector(solution)
-    animation = animate(syms, xs, rs, h, walking_speed, times, par_map,
-                        STIFFNESS_EXP, plot_time, grf_meas)
+    half_cycle_times = prob.time_vector(solution)
+    animation = animate(syms, xs, rs, h, traj_map[v], half_cycle_times,
+                        par_map, STIFFNESS_EXP, grf_meas)
     animation.save('human_gait.gif', fps=int(1.0/h))
     plt.show()

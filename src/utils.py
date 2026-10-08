@@ -298,10 +298,9 @@ def generate_planar_grf_func(symbolics):
     =======
     eval_loop : function
         input:
-            xs shape(N, 12)
-            rs shape(N, 7)
-                [Tb, Tc, Td, Te, Tf, Tg, v]
-            ps shape(N, num_constants)
+            xs shape(18, N)
+            rs shape(6, N)
+            ps shape(num_constants, N)
         output: res, shape(N, 4)
             [rightx, righty, leftx, lefty]
 
@@ -322,7 +321,8 @@ def generate_planar_grf_func(symbolics):
     return eval_loop
 
 
-def animate(symbolics, xs, rs, h, speed, times, par_map, stiffness_exp, plot_time, grf_meas):
+def animate(symbolics, xs, rs, h, speed, times, par_map, stiffness_exp,
+            grf_meas):
     """
 
     Parameters
@@ -334,8 +334,9 @@ def animate(symbolics, xs, rs, h, speed, times, par_map, stiffness_exp, plot_tim
     rs : shape(q, N)
         Input trajectories.
     h : float
-    speed :
-    times :
+        Time step.
+    speed : shape(N,)
+    times : shape(N,)
     par_map :
     stiffness_exp :
 
@@ -348,11 +349,16 @@ def animate(symbolics, xs, rs, h, speed, times, par_map, stiffness_exp, plot_tim
     ax3d = fig.add_subplot(1, 2, 1, projection='3d')
     ax2d = fig.add_subplot(1, 2, 2)
 
-    # hip_proj = origin.locatenew('m', qax*ground.x)
-    # scene = Scene3D(ground, hip_proj, ax=ax3d)
     scene = Scene3D(ground, origin, ax=ax3d)
 
     # creates the stick person
+    scene.add_line([
+        trunk.joint,
+        trunk.mass_center,
+        trunk.joint,
+    ], color="k")
+
+    # right leg in blue
     scene.add_line([
         rshank.joint,
         rfoot.toe,
@@ -360,14 +366,17 @@ def animate(symbolics, xs, rs, h, speed, times, par_map, stiffness_exp, plot_tim
         rshank.joint,
         rthigh.joint,
         trunk.joint,
-        trunk.mass_center,
+    ], color="tab:blue")
+
+    # left leg in orange
+    scene.add_line([
         trunk.joint,
         lthigh.joint,
         lshank.joint,
         lfoot.heel,
         lfoot.toe,
         lshank.joint,
-    ], color="k")
+    ], color="tab:orange")
 
     # creates a moving ground (many points to deal with matplotlib limitation)
     # ?? can we make the dashed line move to the left?
@@ -387,21 +396,22 @@ def animate(symbolics, xs, rs, h, speed, times, par_map, stiffness_exp, plot_tim
     scene.add_vector(grf['Right Foot heel']/600.0, rfoot.heel,
                      color="tab:blue")
     scene.add_vector(grf['Left Foot toe']/600.0, lfoot.toe,
-                     color="tab:blue")
+                     color="tab:orange")
     scene.add_vector(grf['Left Foot heel']/600.0, lfoot.heel,
-                     color="tab:blue")
+                     color="tab:orange")
 
     scene.lambdify_system(symbolics.states + symbolics.specifieds +
                           symbolics.constants)
+
     gait_cycle = np.vstack((
         xs,  # q, u shape(2n, N)
         rs[:6, :],  # r, shape(q, N)
-        speed + np.zeros((1, len(times))),  # belt speed shape(1, N)
+        speed,  # belt speed shape(1, N)
         np.repeat(np.atleast_2d(np.array(list(par_map.values()))).T,
                   len(times), axis=1),  # p, shape(r, N)
-    ))
-    scene.evaluate_system(*gait_cycle[:, 0])
+    ))  # shape(68, N)
 
+    scene.evaluate_system(*gait_cycle[:, 0])
     scene.axes.set_proj_type("ortho")
     scene.axes.view_init(90, -90, 0)
     scene.plot(prettify=False)
@@ -413,26 +423,23 @@ def animate(symbolics, xs, rs, h, speed, times, par_map, stiffness_exp, plot_tim
         axis.set_ticklabels([])
         axis.set_ticks_position("none")
 
-    eval_rforce = sm.lambdify(
-        symbolics.states + symbolics.specifieds + symbolics.constants,
-        (grf['Right Foot heel'] + grf['Right Foot toe']).to_matrix(ground),
-        cse=True)
+    eval_grf = generate_planar_grf_func(symbolics)
+    grf_sol = eval_grf(
+        xs,
+        np.vstack((
+            rs[:6, :],  # r, shape(q, N)
+            np.atleast_2d(speed))  # belt speed shape(1, N)
+        ),
+        np.repeat(np.atleast_2d(np.array(list(par_map.values()))).T,
+                  xs.shape[1], axis=1)  # p, shape(r, N)
+    )  # shape(N, 4)
 
-    eval_lforce = sm.lambdify(
-        symbolics.states + symbolics.specifieds + symbolics.constants,
-        (grf['Left Foot heel'] + grf['Left Foot toe']).to_matrix(ground),
-        cse=True)
+    ax2d.plot(times, grf_sol[:, [0, 1]], color='tab:blue')
+    ax2d.plot(times, grf_sol[:, [2, 3]], color='tab:orange')
 
-    rforces = np.array([eval_rforce(*gci).squeeze() for gci in gait_cycle.T])
-    lforces = np.array([eval_lforce(*gci).squeeze() for gci in gait_cycle.T])
+    ax2d.plot(times[:-1], grf_meas[:, :2], linestyle='--', color='tab:blue')
+    ax2d.plot(times[:-1], grf_meas[:, 2:], linestyle='--', color='tab:orange')
 
-    full_cycle_times = np.hstack((times, times[-1] + times))
-    full_gait_cycle = np.hstack((gait_cycle, gait_cycle))
-    ax2d.plot(full_cycle_times,
-              np.vstack((rforces[:, :2], lforces[:, :2])), color='C0')
-    ax2d.plot(full_cycle_times,
-              np.vstack((lforces[:, :2], rforces[:, :2])), color='C1')
-    ax2d.plot(plot_time, grf_meas, linestyle='--', color='C0')
     ax2d.grid()
     ax2d.set_ylabel('Force [N]')
     ax2d.set_xlabel('Time [s]')
@@ -442,15 +449,15 @@ def animate(symbolics, xs, rs, h, speed, times, par_map, stiffness_exp, plot_tim
     vline = ax2d.axvline(times[0], color='black')
 
     def update(i):
-        scene.evaluate_system(*full_gait_cycle[:, i])
+        scene.evaluate_system(*gait_cycle[:, i])
         scene.update()
-        vline.set_xdata([full_cycle_times[i], full_cycle_times[i]])
+        vline.set_xdata([times[i], times[i]])
         return scene.artists + (vline,)
 
     ani = FuncAnimation(
         fig,
         update,
-        frames=range(len(full_cycle_times)),
+        frames=range(len(times)),
         interval=h*1000,  # milliseconds
     )
 
