@@ -285,8 +285,61 @@ class SymbolDict(dict):
         dict.__setitem__(self, key, val)
 
 
-def animate(symbolics, xs, rs, h, speed, times, par_map, stiffness_exp):
+def generate_planar_grf_func(symbolics):
+    """Returns a function that evaluates the right and left ground reaction
+    forces given the states, inputs, and parameters.
 
+    Parameters
+    ==========
+    symbolics : pygait2d.derive.Symbolics
+        Dataclass containing the symbolic model.
+
+    Returns
+    =======
+    eval_loop : function
+        input:
+            xs shape(N, 12)
+            rs shape(N, 7)
+                [Tb, Tc, Td, Te, Tf, Tg, v]
+            ps shape(N, num_constants)
+        output: res, shape(N, 4)
+            [rightx, righty, leftx, lefty]
+
+    """
+    ground = symbolics.inertial_frame
+    grf = symbolics.ground_reaction_forces
+    x, r, p = symbolics.states, symbolics.specifieds, symbolics.constants
+    Fr = (grf['Right Foot heel'] + grf['Right Foot toe']).to_matrix(ground)
+    Fl = (grf['Left Foot heel'] + grf['Left Foot toe']).to_matrix(ground)
+    # Frx(t), Fry(t), Flx(t), Fly(t)
+    F = [Fr[0, 0], Fr[1, 0], Fl[0, 0], Fl[1, 0]]
+    eval_i = sm.lambdify((x, r, p), F, cse=True)
+    def eval_loop(xs, rs, ps):
+        res = np.zeros((xs.shape[1], len(F)))
+        for i, (xi, ri, pi) in enumerate(zip(xs.T, rs.T, ps.T)):
+            res[i] = eval_i(xi, ri, pi)
+        return res
+    return eval_loop
+
+
+def animate(symbolics, xs, rs, h, speed, times, par_map, stiffness_exp, plot_time, grf_meas):
+    """
+
+    Parameters
+    ==========
+    symbolics : pygait2d.derive.Symbolics
+        Dataclass containing the symbolic model.
+    xs : ndarray, shape(2n, N)
+        State trajectories.
+    rs : shape(q, N)
+        Input trajectories.
+    h : float
+    speed :
+    times :
+    par_map :
+    stiffness_exp :
+
+    """
     ground, origin = symbolics.inertial_frame, symbolics.origin
     trunk, rthigh, rshank, rfoot, lthigh, lshank, lfoot = symbolics.segments
 
@@ -379,6 +432,7 @@ def animate(symbolics, xs, rs, h, speed, times, par_map, stiffness_exp):
               np.vstack((rforces[:, :2], lforces[:, :2])), color='C0')
     ax2d.plot(full_cycle_times,
               np.vstack((lforces[:, :2], rforces[:, :2])), color='C1')
+    ax2d.plot(plot_time, grf_meas, linestyle='--', color='C0')
     ax2d.grid()
     ax2d.set_ylabel('Force [N]')
     ax2d.set_xlabel('Time [s]')
@@ -849,7 +903,7 @@ def load_winter_data(num_nodes, as_data_frame=False):
     return duration, walking_speed, num_angles, ang_data
 
 
-def load_sample_data(num_nodes, gait_cycle_number=10, drop_last_node=True):
+def load_sample_data(num_nodes, gait_cycle_number=10, drop_last_node=False):
     """Returns interpolated data from a measurement file formulated as a single
     gait cycle of both legs from 0% to ``50%*(1 - 1/(N - 1))`` in the same
     format as ``load_winter_data()`` (Gait2D sign conventions).
@@ -1300,7 +1354,7 @@ if __name__ == "__main__":
 
     # extracts a gait cycle from our PeerJ data
     sample_half_df = load_sample_data(half_cycle_num_nodes,
-                                      gait_cycle_number=6)
+                                      gait_cycle_number=6, drop_last_node=True)
     sample_half_df[GRF_PLOT_COLS + TOR_PLOT_COLS].plot(
         marker='.', subplots=True, title="Kinetics from PeerJ Data")
 
