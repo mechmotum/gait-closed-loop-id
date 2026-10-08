@@ -22,12 +22,12 @@ import sympy as sm
 
 from solve_standing import find_standing_state
 from utils import (
+    ANG_GAIT2D_COLS,
     CALIBDATAPATH,
     DATADIR,
-    ANG_GAIT2D_COLS,
-    TOR_GAIT2D_COLS,
     GRF_GAIT2D_COLS,
     SymbolDict,
+    TOR_GAIT2D_COLS,
     animate,
     body_segment_parameters_from_calibration,
     extract_values,
@@ -36,6 +36,7 @@ from utils import (
     full_gait_from_half,
     generate_grf_equations,
     generate_marker_equations,
+    generate_planar_grf_func,
     load_sample_data,
     load_winter_data_frame,
     plot_joint_comparison,
@@ -60,24 +61,22 @@ NUM_NODES = 50  # number of time nodes for the half period
 SEED = True  # set to integer value for specific seed value, True(=1), or False
 STIFFNESS_EXP = 2  # exponent of the contact stiffness force
 SUBJECT_MASS = 70.0  # kg of subject from trial 20, TODO: extract from metadata
-USE_WINTER_DATA = False  # if we want to track Winter's gait data
+USE_WINTER_DATA = True  # if we want to track Winter's gait data
 # Remove parts of the objective by setting to integer 0.
 WANG = 1000.0  # weight of mean squared angle tracking error (in rad)
-WGRF = 0  # weight of mean squared GRF tracking error (in Newtons)
+WGRF = 0.002  # weight of mean squared GRF tracking error (in Newtons)
 WMAR = 0  # weight of mean squared marker tracking error (in meters)
 WREG = 1e-6  # weight of mean squared time derivatives
 WTOR = 1000.0  # weight of the mean squared torque (in kNm) objective
 
-# Load half cycle [0%, 50%] measurement data from Moore et al. 2015 or
-# normative Winter's data unless tracking markers is requested.
+# Load half cycle [0%, 50%] measurement data from Moore et al. 2015 (trial 20)
+# or normative Winter's data unless tracking markers is requested.
 if USE_WINTER_DATA:
     if WMAR != 0:
         raise ValueError("Winter's data does not have markers to track.")
     df = load_winter_data_frame(num_nodes=NUM_NODES, half_cycle=True)
 else:
-    # load a gait cycle from our data (trial 20)
-    df = load_sample_data(NUM_NODES, gait_cycle_number=GAIT_CYCLE_NUM,
-                          drop_last_node=False)
+    df = load_sample_data(NUM_NODES, gait_cycle_number=GAIT_CYCLE_NUM)
 
 duration = df['Time'].values[-1]  # time @ 50%
 h = duration/(NUM_NODES - 1)  # fixed time step in the simulation
@@ -448,9 +447,19 @@ if WGRF != 0:
     grf_sol = extract_values(prob, solution, *grf_syms,
                              slice=(0, -1)).reshape(len(grf_syms),
                                                     NUM_NODES-1).transpose()
-    grf_sol = full_gait_from_half(grf_sol)
 else:
-    grf_sol = None
+    eval_grf = generate_planar_grf_func(syms)
+    xs, rs, _ = prob.parse_free(solution)
+    grf_sol = eval_grf(
+        xs,
+        np.vstack((
+            rs[:6, :],  # r, shape(q, N)
+            traj_map[v])  # belt speed shape(1, N)
+        ),
+        np.repeat(np.atleast_2d(np.array(list(par_map.values()))).T,
+                  xs.shape[1], axis=1)  # p, shape(r, N)
+    )  # shape(N, 4)
+    grf_sol = grf_sol[:-1, :]  # shape(N-1, 4)
 
 ang_meas = df[ANG_GAIT2D_COLS].values[:-1, :]
 tor_meas = df[TOR_GAIT2D_COLS].values[:-1, :]
@@ -459,16 +468,18 @@ grf_meas = df[GRF_GAIT2D_COLS].values[:-1, :]
 # construct a right side full gait cycle trajectory
 plot_time = np.linspace(0.0, duration - h, num=2*NUM_NODES - 1)
 
-ang_sol = full_gait_from_half(ang_sol)
-tor_sol = full_gait_from_half(tor_sol)
+ang_sol_full = full_gait_from_half(ang_sol)
+tor_sol_full = full_gait_from_half(tor_sol)
+grf_sol_full = full_gait_from_half(grf_sol)
 
-ang_meas = full_gait_from_half(ang_meas)
-tor_meas = full_gait_from_half(tor_meas)
-grf_meas = full_gait_from_half(grf_meas)
+ang_meas_full = full_gait_from_half(ang_meas)
+tor_meas_full = full_gait_from_half(tor_meas)
+grf_meas_full = full_gait_from_half(grf_meas)
 
 # Generate plots and animations
-plot_joint_comparison(plot_time, ang_sol, tor_sol, ang_meas,
-                      torques_meas=tor_meas, grf=grf_sol, grf_meas=grf_meas)
+plot_joint_comparison(plot_time, ang_sol_full, tor_sol_full, ang_meas_full,
+                      torques_meas=tor_meas_full, grf=grf_sol_full,
+                      grf_meas=grf_meas_full)
 
 if WMAR != 0:
     plot_marker_comparison(marker_syms, marker_labels, df, prob, solution)
@@ -477,8 +488,8 @@ plt.show()
 
 if MAKE_ANIMATION:
     xs, rs, _ = prob.parse_free(solution)
-    times = prob.time_vector(solution)
-    animation = animate(syms, xs, rs, h, walking_speed, times, par_map,
-                        STIFFNESS_EXP)
+    half_cycle_times = prob.time_vector(solution)
+    animation = animate(syms, xs, rs, h, traj_map[v], half_cycle_times,
+                        par_map, STIFFNESS_EXP, grf_meas)
     animation.save('human_gait.gif', fps=int(1.0/h))
     plt.show()
