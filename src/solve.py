@@ -57,7 +57,7 @@ GAIT_CYCLE_NUM = 45  # gait cycle to select from measurment data
 GENFORCE_SCALE = 0.001  # convert to kN and kNm
 LINEAR_SOLVER = 'mumps'  # passed to IPOPT mumps, spral, ma57, ma77, ma86, ma97
 MAKE_ANIMATION = True
-NUM_NODES = 50  # number of time nodes for the half period
+NUM_NODES = 101  # number of time nodes for the half period
 SEED = True  # set to integer value for specific seed value, True(=1), or False
 STIFFNESS_EXP = 2  # exponent of the contact stiffness force
 SUBJECT_MASS = 70.0  # kg of subject from trial 20, TODO: extract from metadata
@@ -70,7 +70,7 @@ WREG = 1e-6  # weight of mean squared time derivatives
 WTOR = 1000.0  # weight of the mean squared torque (in kNm) objective
 
 # Load half cycle [0%, 50%] measurement data from Moore et al. 2015 (trial 20)
-# or normative Winter's data unless tracking markers is requested.
+# or normative Winter's data (unless tracking markers is requested).
 if USE_WINTER_DATA:
     if WMAR != 0:
         raise ValueError("Winter's data does not have markers to track.")
@@ -408,14 +408,14 @@ initial_guess = (initial_guess +
 
 
 # Solve the gait optimization problem for given belt speed
-def solve_gait(speed, initial_guess):
+def solve_gait(speeds, initial_guess):
 
     # change the belt speed signal
-    traj_map[v] = speed*np.ones(NUM_NODES)
+    traj_map[v] = speeds
 
     # solve
     logger.info(datetime.now().strftime("%H:%M:%S") +
-                f" solving for {speed:.3f} m/s")
+                f" solving for {np.mean(speeds):.3f} m/s")
     solution, info = prob.solve(initial_guess)
     # we accept solve_succeeded (0) and solved_to_acceptable_level (1)
     if info['status'] < 0:
@@ -428,8 +428,9 @@ def solve_gait(speed, initial_guess):
 
 
 # solve for a series of increasing speeds, ending at the required speed
-for speed in np.linspace(0.1, walking_speed, num=10):
-    solution = solve_gait(speed, initial_guess)
+for speed_scale in np.linspace(0.1, 1.0, num=10):
+    speeds = speed_scale*df['Speed'].values
+    solution = solve_gait(speeds, initial_guess)
     initial_guess = solution  # use this solution as guess for the next problem
 
 # TODO : Move data preparation for plots into functions in utils.py
@@ -441,7 +442,6 @@ tor_sol = extract_values(prob, solution, *syms.joint_torques,
                      slice=(0, -1)).reshape(len(syms.joint_torques),
                                             NUM_NODES-1).transpose()
 if WGRF != 0:
-    # TODO : Extract the GRFs from the Winter's data also.
     # Frx(t), Fry(t), Flx(t), Fly(t)
     # N-1 x 4
     grf_sol = extract_values(prob, solution, *grf_syms,
@@ -450,20 +450,21 @@ if WGRF != 0:
 else:
     eval_grf = generate_planar_grf_func(syms)
     xs, rs, _ = prob.parse_free(solution)
+    ps = np.repeat(np.atleast_2d(np.array(list(par_map.values()))).T,
+                   NUM_NODES, axis=1)  # shape(r, N)
     grf_sol = eval_grf(
         xs,
         np.vstack((
             rs[:6, :],  # r, shape(q, N)
             traj_map[v])  # belt speed shape(1, N)
         ),
-        np.repeat(np.atleast_2d(np.array(list(par_map.values()))).T,
-                  xs.shape[1], axis=1)  # p, shape(r, N)
+        ps,  # shape(r, N)
     )  # shape(N, 4)
     grf_sol = grf_sol[:-1, :]  # shape(N-1, 4)
 
-ang_meas = df[ANG_GAIT2D_COLS].values[:-1, :]
-tor_meas = df[TOR_GAIT2D_COLS].values[:-1, :]
-grf_meas = df[GRF_GAIT2D_COLS].values[:-1, :]
+ang_meas = df[ANG_GAIT2D_COLS].values[:-1, :]  # shape(N-1, 6)
+tor_meas = df[TOR_GAIT2D_COLS].values[:-1, :]  # shape(N-1, 6)
+grf_meas = df[GRF_GAIT2D_COLS].values[:-1, :]  # shape(N-1, 4)
 
 # construct a right side full gait cycle trajectory
 plot_time = np.linspace(0.0, duration - h, num=2*NUM_NODES - 1)

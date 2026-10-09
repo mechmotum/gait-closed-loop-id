@@ -140,7 +140,7 @@ def full_gait_from_half(half):
     =======
     full : shape(2*n + 1, m/2)
         Array representing m/2 trajectores spanning 2n + 1 perecent gait points
-        from [0%, 100%).
+        from [0%, 100%) for the right leg only.
 
     """
     n, m = half.shape
@@ -299,7 +299,8 @@ def generate_planar_grf_func(symbolics):
     eval_loop : function
         input:
             xs shape(18, N)
-            rs shape(6, N)
+            rs shape(7, N)
+                [Tb, Tc, Td, Te, Tf, Tg, v]
             ps shape(num_constants, N)
         output: res, shape(N, 4)
             [rightx, righty, leftx, lefty]
@@ -314,6 +315,9 @@ def generate_planar_grf_func(symbolics):
     F = [Fr[0, 0], Fr[1, 0], Fl[0, 0], Fl[1, 0]]
     eval_i = sm.lambdify((x, r, p), F, cse=True)
     def eval_loop(xs, rs, ps):
+        if xs.shape[1] != rs.shape[1] != ps.shape[1]:
+            msg = 'xs, rs, and ps must have same number of time steps'
+            raise ValueError(msg)
         res = np.zeros((xs.shape[1], len(F)))
         for i, (xi, ri, pi) in enumerate(zip(xs.T, rs.T, ps.T)):
             res[i] = eval_i(xi, ri, pi)
@@ -323,26 +327,34 @@ def generate_planar_grf_func(symbolics):
 
 def animate(symbolics, xs, rs, h, speed, times, par_map, stiffness_exp,
             grf_meas):
-    """
+    """Returns a matplotlib animation of the half gait cycle showing results
+    for both legs.
 
     Parameters
     ==========
     symbolics : pygait2d.derive.Symbolics
         Dataclass containing the symbolic model.
-    xs : ndarray, shape(2n, N)
+    xs : ndarray, shape(18, N)
         State trajectories.
     rs : shape(q, N)
         Input trajectories.
     h : float
         Time step.
-    speed : shape(N,)
+    speeds : shape(N,)
     times : shape(N,)
-    par_map :
+    par_map : dict
     stiffness_exp :
+    grf_meas : ndarray, shape(N, 4)
+
+    Returns
+    =======
+    ani : FuncAnimation
+        Matplotlib animation.
 
     """
     ground, origin = symbolics.inertial_frame, symbolics.origin
     trunk, rthigh, rshank, rfoot, lthigh, lshank, lfoot = symbolics.segments
+    grf = symbolics.ground_reaction_forces
 
     fig = plt.figure(figsize=(10.0, 4.0))
 
@@ -378,8 +390,7 @@ def animate(symbolics, xs, rs, h, speed, times, par_map, stiffness_exp,
         lshank.joint,
     ], color="tab:orange")
 
-    # creates a moving ground (many points to deal with matplotlib limitation)
-    # ?? can we make the dashed line move to the left?
+    # ground line
     scene.add_line([origin.locatenew('gl', s*ground.x) for s in
                     np.linspace(-2.0, 2.0)], linestyle='--', color='tab:green',
                    axlim_clip=True)
@@ -390,7 +401,6 @@ def animate(symbolics, xs, rs, h, speed, times, par_map, stiffness_exp,
 
     # show ground reaction force vectors at the heels and toes, scaled to
     # visually reasonable length
-    grf = symbolics.ground_reaction_forces
     scene.add_vector(grf['Right Foot toe']/600.0, rfoot.toe,
                      color="tab:blue")
     scene.add_vector(grf['Right Foot heel']/600.0, rfoot.heel,
@@ -403,12 +413,14 @@ def animate(symbolics, xs, rs, h, speed, times, par_map, stiffness_exp,
     scene.lambdify_system(symbolics.states + symbolics.specifieds +
                           symbolics.constants)
 
+    # stack for correspondence to lambdify_system()
+    ps = np.repeat(np.atleast_2d(np.array(list(par_map.values()))).T,
+                   len(times), axis=1)
     gait_cycle = np.vstack((
-        xs,  # q, u shape(2n, N)
-        rs[:6, :],  # r, shape(q, N)
+        xs,  # q, u shape(18, N)
+        rs[:6, :],  # r, shape(6, N)
         speed,  # belt speed shape(1, N)
-        np.repeat(np.atleast_2d(np.array(list(par_map.values()))).T,
-                  len(times), axis=1),  # p, shape(r, N)
+        ps,  # p, shape(r, N)
     ))  # shape(68, N)
 
     scene.evaluate_system(*gait_cycle[:, 0])
@@ -425,26 +437,34 @@ def animate(symbolics, xs, rs, h, speed, times, par_map, stiffness_exp,
 
     eval_grf = generate_planar_grf_func(symbolics)
     grf_sol = eval_grf(
-        xs,
+        xs,  # shape(18, N)
         np.vstack((
-            rs[:6, :],  # r, shape(q, N)
+            rs[:6, :],  # shape(6, N)
             np.atleast_2d(speed))  # belt speed shape(1, N)
-        ),
-        np.repeat(np.atleast_2d(np.array(list(par_map.values()))).T,
-                  xs.shape[1], axis=1)  # p, shape(r, N)
+        ),  # shape(7, N)
+        ps,  # shape(r, N)
     )  # shape(N, 4)
 
+    # plot GRF from optimization
     ax2d.plot(times, grf_sol[:, [0, 1]], color='tab:blue')
     ax2d.plot(times, grf_sol[:, [2, 3]], color='tab:orange')
-
+    # plot GRF from measurements
     ax2d.plot(times[:-1], grf_meas[:, :2], linestyle='--', color='tab:blue')
     ax2d.plot(times[:-1], grf_meas[:, 2:], linestyle='--', color='tab:orange')
 
     ax2d.grid()
     ax2d.set_ylabel('Force [N]')
     ax2d.set_xlabel('Time [s]')
-    ax2d.legend(['Horizontal GRF (r)', 'Vertical GRF (r)',
-                 'Horizontal GRF (l)', 'Vertical GRF (l)'], loc='upper right')
+    ax2d.legend([
+        'Horizontal GRF (r)',
+        'Vertical GRF (r)',
+        'Horizontal GRF (l)',
+        'Vertical GRF (l)',
+        'Horizontal Meas GRF (r)',
+        'Vertical Meas GRF (r)',
+        'Horizontal Meas GRF (l)',
+        'Vertical Meas GRF (l)',
+    ], fontsize=6, loc='upper right')
     ax2d.set_title('Foot Ground Reaction Force Components')
     vline = ax2d.axvline(times[0], color='black')
 
