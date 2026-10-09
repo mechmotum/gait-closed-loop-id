@@ -37,7 +37,6 @@ from utils import (
     full_gait_from_half,
     generate_grf_equations,
     generate_marker_equations,
-    generate_planar_grf_func,
     load_sample_data,
     load_winter_data_frame,
     plot_joint_comparison,
@@ -62,7 +61,7 @@ NUM_NODES = 51  # number of time nodes for the half period
 SEED = True  # set to integer value for specific seed value, True(=1), or False
 STIFFNESS_EXP = 2  # exponent of the contact stiffness force
 SUBJECT_MASS = 70.0  # kg of subject from trial 20, TODO: extract from metadata
-USE_WINTER_DATA = True  # if we want to track Winter's gait data
+USE_WINTER_DATA = False  # if we want to track Winter's gait data
 # Remove parts of the objective by setting to integer 0.
 WANG = 1000.0  # weight of mean squared angle tracking error (in rad)
 WGRF = 0.002  # weight of mean squared GRF tracking error (in Newtons)
