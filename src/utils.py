@@ -121,13 +121,13 @@ TOR_PLOT_COLS = [
 ]
 
 
-def full_gait_from_half(half):
+def full_gait_from_half(*halves):
     """Returns a full right side gait cycle constructed from a right & left
     half gait cycle.
 
     Parameters
     ==========
-    half : shape(n, m)
+    halves : iterable of ndarray shape(n, m)
         Array representing m trajectories spanning n percent gait points from
         [0%, 50%). Not including the 50% node! For example:
 
@@ -138,18 +138,23 @@ def full_gait_from_half(half):
 
     Returns
     =======
-    full : shape(2*n + 1, m/2)
+    res : ndarray, shape(2*n + 1, m/2) or iterable of
         Array representing m/2 trajectores spanning 2n + 1 perecent gait points
         from [0%, 100%) for the right leg only.
 
     """
-    n, m = half.shape
-
-    return np.vstack((
-        half[:, 0:m//2],  # right leg
-        half[:, m//2:m],  # left leg
-        half[1, 0:m//2],  # repeat second from right leg
-    ))
+    res = []
+    for half in halves:
+        n, m = half.shape
+        res.append(np.vstack((
+            half[:, 0:m//2],  # right leg
+            half[:, m//2:m],  # left leg
+            half[1, 0:m//2],  # repeat second from right leg
+        )))
+    if len(halves) == 1:
+        return res[0]
+    else:
+        return tuple(res)
 
 
 def tile_standing(standing_sol, num_nodes, num_angles, num_states):
@@ -323,6 +328,62 @@ def generate_planar_grf_func(symbolics):
             res[i] = eval_i(xi, ri, pi)
         return res
     return eval_loop
+
+
+def extract_solution(syms, prob, solution):
+    """Returns arrays with right and left joint angles, joint torques, and
+    ground reaction forces for the half gait cycle [0%, 50%).
+
+    Parameters
+    ==========
+    syms : pygait2d.derive.Symbolics
+        Dataclass containing the symbolic model.
+    prob : opty.Problem
+    solution : ndarray
+        Free vector to animate (solution from Problem.solve()).
+
+
+    Returns
+    =======
+    ang_sol : ndarray, shape(6, N-1)
+    tor_sol : ndarray, shape(6, N-1)
+    grf_sol : ndarray, shape(4, N-1)
+
+    """
+    N = prob.collocator.num_collocation_nodes
+    par_map = prob.collocator.known_parameter_map
+    traj_map = prob.collocator.known_trajectory_map
+    v = syms.specifieds[-1]
+    grf_syms, _, _ = generate_grf_equations(syms)
+
+    def extract_reshaped(symbols):
+        flat_array = extract_values(prob, solution, *symbols, slice=(0, -1))
+        return flat_array.reshape(len(symbols), N-1).transpose()
+
+    ang_sol = extract_reshaped(syms.joint_angles)
+
+    tor_sol = extract_reshaped(syms.joint_torques)
+
+    if 'Flx(t)' in [str(s) for s in prob.collocator.unknown_input_trajectories]:
+        # Frx(t), Fry(t), Flx(t), Fly(t)
+        # N-1 x 4
+        grf_sol = extract_reshaped(grf_syms)
+    else:
+        eval_grf = generate_planar_grf_func(syms)
+        xs, rs, _ = prob.parse_free(solution)
+        ps = np.repeat(np.atleast_2d(np.array(list(par_map.values()))).T, N,
+                       axis=1)  # shape(r, N)
+        grf_sol = eval_grf(
+            xs,
+            np.vstack((
+                rs[:6, :],  # r, shape(q, N)
+                traj_map[v])  # belt speed shape(1, N)
+            ),
+            ps,  # shape(r, N)
+        )  # shape(N, 4)
+        grf_sol = grf_sol[:-1, :]  # shape(N-1, 4)
+
+    return ang_sol, tor_sol, grf_sol
 
 
 def animate(symbolics, prob, solution, speeds, grf_meas):

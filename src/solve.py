@@ -30,6 +30,7 @@ from utils import (
     TOR_GAIT2D_COLS,
     animate,
     body_segment_parameters_from_calibration,
+    extract_solution,
     extract_values,
     extract_values_diff,
     fill_free,
@@ -57,7 +58,7 @@ GAIT_CYCLE_NUM = 45  # gait cycle to select from measurment data
 GENFORCE_SCALE = 0.001  # convert to kN and kNm
 LINEAR_SOLVER = 'mumps'  # passed to IPOPT mumps, spral, ma57, ma77, ma86, ma97
 MAKE_ANIMATION = True
-NUM_NODES = 101  # number of time nodes for the half period
+NUM_NODES = 51  # number of time nodes for the half period
 SEED = True  # set to integer value for specific seed value, True(=1), or False
 STIFFNESS_EXP = 2  # exponent of the contact stiffness force
 SUBJECT_MASS = 70.0  # kg of subject from trial 20, TODO: extract from metadata
@@ -433,49 +434,18 @@ for speed_scale in np.linspace(0.1, 1.0, num=10):
     solution = solve_gait(speeds, initial_guess)
     initial_guess = solution  # use this solution as guess for the next problem
 
-# TODO : Move data preparation for plots into functions in utils.py
-# extract angles and torques
-ang_sol = extract_values(prob, solution, *syms.joint_angles,
-                         slice=(0, -1)).reshape(len(syms.joint_angles),
-                                                NUM_NODES-1).transpose()
-tor_sol = extract_values(prob, solution, *syms.joint_torques,
-                     slice=(0, -1)).reshape(len(syms.joint_torques),
-                                            NUM_NODES-1).transpose()
-if WGRF != 0:
-    # Frx(t), Fry(t), Flx(t), Fly(t)
-    # N-1 x 4
-    grf_sol = extract_values(prob, solution, *grf_syms,
-                             slice=(0, -1)).reshape(len(grf_syms),
-                                                    NUM_NODES-1).transpose()
-else:
-    eval_grf = generate_planar_grf_func(syms)
-    xs, rs, _ = prob.parse_free(solution)
-    ps = np.repeat(np.atleast_2d(np.array(list(par_map.values()))).T,
-                   NUM_NODES, axis=1)  # shape(r, N)
-    grf_sol = eval_grf(
-        xs,
-        np.vstack((
-            rs[:6, :],  # r, shape(q, N)
-            traj_map[v])  # belt speed shape(1, N)
-        ),
-        ps,  # shape(r, N)
-    )  # shape(N, 4)
-    grf_sol = grf_sol[:-1, :]  # shape(N-1, 4)
-
+# extract angles and torques (simulation and measured)
+ang_sol, tor_sol, grf_sol = extract_solution(syms, prob, solution)
 ang_meas = df[ANG_GAIT2D_COLS].values[:-1, :]  # shape(N-1, 6)
 tor_meas = df[TOR_GAIT2D_COLS].values[:-1, :]  # shape(N-1, 6)
 grf_meas = df[GRF_GAIT2D_COLS].values[:-1, :]  # shape(N-1, 4)
 
 # construct a right side full gait cycle trajectory
 plot_time = np.linspace(0.0, duration - h, num=2*NUM_NODES - 1)
-
-ang_sol_full = full_gait_from_half(ang_sol)
-tor_sol_full = full_gait_from_half(tor_sol)
-grf_sol_full = full_gait_from_half(grf_sol)
-
-ang_meas_full = full_gait_from_half(ang_meas)
-tor_meas_full = full_gait_from_half(tor_meas)
-grf_meas_full = full_gait_from_half(grf_meas)
+ang_sol_full, tor_sol_full, grf_sol_full = full_gait_from_half(
+    ang_sol, tor_sol, grf_sol)
+ang_meas_full, tor_meas_full, grf_meas_full = full_gait_from_half(
+    ang_meas, tor_meas, grf_meas)
 
 # Generate plots and animations
 plot_joint_comparison(plot_time, ang_sol_full, tor_sol_full, ang_meas_full,
