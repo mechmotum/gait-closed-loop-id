@@ -488,9 +488,6 @@ if WMAR != 0:
 plt.show()
 
 if MAKE_ANIMATION:
-    xs, rs, _ = prob.parse_free(solution)
-    half_cycle_times = prob.time_vector(solution)
-    animation = animate(syms, xs, rs, h, traj_map[v], half_cycle_times,
-                        par_map, STIFFNESS_EXP, grf_meas)
+    animation = animate(syms, prob, solution, traj_map[v], grf_meas)
     animation.save('human_gait.gif', fps=int(1.0/h))
     plt.show()

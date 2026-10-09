@@ -325,8 +325,7 @@ def generate_planar_grf_func(symbolics):
     return eval_loop
 
 
-def animate(symbolics, xs, rs, h, speed, times, par_map, stiffness_exp,
-            grf_meas):
+def animate(symbolics, prob, solution, speeds, grf_meas):
     """Returns a matplotlib animation of the half gait cycle showing results
     for both legs.
 
@@ -334,16 +333,10 @@ def animate(symbolics, xs, rs, h, speed, times, par_map, stiffness_exp,
     ==========
     symbolics : pygait2d.derive.Symbolics
         Dataclass containing the symbolic model.
-    xs : ndarray, shape(18, N)
-        State trajectories.
-    rs : shape(q, N)
-        Input trajectories.
-    h : float
-        Time step.
+    prob : opty.Problem
+    solution : ndarray
+        Free vector to animate (solution from Problem.solve()).
     speeds : shape(N,)
-    times : shape(N,)
-    par_map : dict
-    stiffness_exp :
     grf_meas : ndarray, shape(N, 4)
 
     Returns
@@ -355,6 +348,18 @@ def animate(symbolics, xs, rs, h, speed, times, par_map, stiffness_exp,
     ground, origin = symbolics.inertial_frame, symbolics.origin
     trunk, rthigh, rshank, rfoot, lthigh, lshank, lfoot = symbolics.segments
     grf = symbolics.ground_reaction_forces
+
+    # xs : ndarray, shape(18, N)
+    # rs : shape(q, N)
+    # times : shape(N,)
+    xs, rs, _ = prob.parse_free(solution)
+    times = prob.time_vector(solution)
+    h = prob.collocator.node_time_interval
+    par_map = prob.collocator.known_parameter_map
+
+    # TODO : This runs in the main script and inside here, coudl be
+    # deduplicated.
+    eval_grf = generate_planar_grf_func(symbolics)
 
     fig = plt.figure(figsize=(10.0, 4.0))
 
@@ -419,7 +424,7 @@ def animate(symbolics, xs, rs, h, speed, times, par_map, stiffness_exp,
     gait_cycle = np.vstack((
         xs,  # q, u shape(18, N)
         rs[:6, :],  # r, shape(6, N)
-        speed,  # belt speed shape(1, N)
+        speeds,  # belt speed shape(1, N)
         ps,  # p, shape(r, N)
     ))  # shape(68, N)
 
@@ -435,12 +440,11 @@ def animate(symbolics, xs, rs, h, speed, times, par_map, stiffness_exp,
         axis.set_ticklabels([])
         axis.set_ticks_position("none")
 
-    eval_grf = generate_planar_grf_func(symbolics)
     grf_sol = eval_grf(
         xs,  # shape(18, N)
         np.vstack((
             rs[:6, :],  # shape(6, N)
-            np.atleast_2d(speed))  # belt speed shape(1, N)
+            np.atleast_2d(speeds))  # belt speed shape(1, N)
         ),  # shape(7, N)
         ps,  # shape(r, N)
     )  # shape(N, 4)
