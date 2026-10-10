@@ -694,16 +694,29 @@ def generate_grf_equations(symbolics):
     return variables, equations, GRF_GAIT2D_COLS
 
 
-def extract_gait_cycle(df, number):
-    """Returns a single gait cycle as a data frame from a measurement data
-    frame based on the gait cycle number."""
+def extract_gait_cycle(df, number, last=None):
+    """Returns a data frame the measurement data frame tht includes either a
+    single gait cycle or an adjacent set of gait cycles.
+
+    Parameters
+    ==========
+    number : integer
+        Number of the first gait cycle to include.
+    last : integer
+        Number of the last gait cycle to include. If None, a single gait cycle
+        of number ``number`` is output.
+
+    """
 
     if number not in df['major'].values:
         msg = '{} not in {}-{}'
         raise ValueError(msg.format(number, df['major'].min(),
                                     df['major'].max()))
 
-    return df[df['major'] == number]
+    if last is None:
+        last = number
+
+    return df[df['major'].between(number, last)]
 
 
 def plot_points(df):
