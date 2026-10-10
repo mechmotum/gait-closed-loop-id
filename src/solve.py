@@ -11,6 +11,7 @@ import itertools
 import logging
 import os
 import platform
+from ctypes.util import find_library
 
 from opty import Problem
 from pygait2d import simulate
@@ -55,7 +56,10 @@ logging.basicConfig(
 EOM_SCALE = 10.0  # scaling factor for eom
 GAIT_CYCLE_NUM = 45  # gait cycle to select from measurment data
 GENFORCE_SCALE = 0.001  # convert to kN and kNm
-LINEAR_SOLVER = 'mumps'  # passed to IPOPT mumps, spral, ma57, ma77, ma86, ma97
+if find_library('coinhsl') is None:
+    LINEAR_SOLVER = 'mumps'  # passed to IPOPT mumps, spral
+else:
+    LINEAR_SOLVER = 'ma57'  # passed to IPOPT ma57, ma77, ma86, ma97
 MAKE_ANIMATION = True
 NUM_NODES = 51  # number of time nodes for the half period
 SEED = True  # set to integer value for specific seed value, True(=1), or False

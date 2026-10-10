@@ -1056,42 +1056,36 @@ def load_sample_data(num_nodes, gait_cycle_number=10, drop_last_node=False):
     duration = np.interp(0.5, full_percent, full_time)
 
     speed = df[['RightBeltSpeed', 'LeftBeltSpeed']].mean(axis=1)
-
-    angles = ANG_COLS
-    all_angles = angles + [
-        'Right.Knee.Extension.Angle',
-        'Right.Ankle.DorsiFlexion.Angle',
-        'Left.Knee.Extension.Angle',
-        'Left.Ankle.DorsiFlexion.Angle',
-    ]
-    ang_arr = -df[angles].values.copy()  # change to extension (knee and ankle)
-    ang_arr[:, [0, 3]] *= -1  # change hip back to flexion
-    ang_arr[:, [2, 5]] -= np.pi/2  # shift ankle 90 degrees
+    df['Speed'] = speed
 
     # Adds angles needed for simulation comparison.
     df['Right.Knee.Extension.Angle'] = -df['Right.Knee.Flexion.Angle']
-    df['Right.Ankle.DorsiFlexion.Angle'] = -df['Right.Ankle.PlantarFlexion.Angle'] - np.pi/2
-    df['Right.Ankle.PlantarFlexion.Angle'] = df['Right.Ankle.PlantarFlexion.Angle'] + np.pi/2
+    df['Right.Ankle.DorsiFlexion.Angle'] = \
+        -df['Right.Ankle.PlantarFlexion.Angle'] - np.pi/2
+    df['Right.Ankle.PlantarFlexion.Angle'] = \
+        df['Right.Ankle.PlantarFlexion.Angle'] + np.pi/2
     df['Left.Knee.Extension.Angle'] = -df['Left.Knee.Flexion.Angle']
-    df['Left.Ankle.DorsiFlexion.Angle'] = -df['Left.Ankle.PlantarFlexion.Angle'] - np.pi/2
-    df['Left.Ankle.PlantarFlexion.Angle'] = df['Left.Ankle.PlantarFlexion.Angle'] + np.pi/2
-    ang_vals = df[all_angles].values.copy()
+    df['Left.Ankle.DorsiFlexion.Angle'] = \
+        -df['Left.Ankle.PlantarFlexion.Angle'] - np.pi/2
+    df['Left.Ankle.PlantarFlexion.Angle'] = \
+        df['Left.Ankle.PlantarFlexion.Angle'] + np.pi/2
 
-    marker_vals = df[MARKER_COLS].values.copy()
-
-    kinetics = GRF_GAIT2D_COLS + TOR_COLS
     # include the adjusted joint torques for matching to Gait2D:
-    all_kinetics = kinetics + [
-        'Right.Knee.Extension.Moment',
-        'Right.Ankle.DorsiFlexion.Moment',
-        'Left.Knee.Extension.Moment',
-        'Left.Ankle.DorsiFlexion.Moment',
-    ]
     df['Right.Knee.Extension.Moment'] = -df['Right.Knee.Flexion.Moment']
-    df['Right.Ankle.DorsiFlexion.Moment'] = -df['Right.Ankle.PlantarFlexion.Moment']
+    df['Right.Ankle.DorsiFlexion.Moment'] = \
+        -df['Right.Ankle.PlantarFlexion.Moment']
     df['Left.Knee.Extension.Moment'] = -df['Left.Knee.Flexion.Moment']
-    df['Left.Ankle.DorsiFlexion.Moment'] = -df['Left.Ankle.PlantarFlexion.Moment']
-    kinetic_vals = df[all_kinetics].values.copy()
+    df['Left.Ankle.DorsiFlexion.Moment'] = \
+        -df['Left.Ankle.PlantarFlexion.Moment']
+
+    keep_cols = (
+        ['Speed'] +
+        MARKER_COLS +
+        ANG_GAIT2D_COLS +
+        TOR_GAIT2D_COLS +
+        GRF_GAIT2D_COLS
+    )
+    vals = df[keep_cols].values
 
     # NOTE : It is fraught to use arange() for constructing these due to
     # numerical stability of arange(), use linspace()!
@@ -1105,19 +1099,10 @@ def load_sample_data(num_nodes, gait_cycle_number=10, drop_last_node=False):
         percent_step = 50.0/(num_nodes - 1)
         percent = np.linspace(0.0, 50.0, num=num_nodes)
 
-    # TODO : Clean this up into a single interpolation.
-    interp_ang_vals = interp1d(full_time, ang_vals, axis=0)(time)
-    interp_mark_arr = interp1d(full_time, marker_vals, axis=0)(time)
-    interp_kinetic_arr = interp1d(full_time, kinetic_vals, axis=0)(time)
-    interp_speed = interp1d(full_time, speed.values, axis=0)(time)
-
-    mark_df = pd.DataFrame(dict(zip(MARKER_COLS, interp_mark_arr.T)))
-    kinetic_df = pd.DataFrame(dict(zip(all_kinetics, interp_kinetic_arr.T)))
-    ang_df = pd.DataFrame(dict(zip(all_angles, interp_ang_vals.T)))
-    more_df = pd.DataFrame({'Time': time, 'Speed': interp_speed,
-                            'Percent Gait Cycle': percent})
-
-    main_df = pd.concat((more_df, ang_df, mark_df, kinetic_df), axis=1)
+    interp_vals = interp1d(full_time, vals, axis=0)(time)
+    more_df = pd.DataFrame({'Time': time, 'Percent Gait Cycle': percent})
+    main_df = pd.DataFrame(dict(zip(keep_cols, interp_vals.T)))
+    main_df = pd.concat((more_df, main_df), axis=1)
 
     return main_df
 
