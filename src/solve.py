@@ -12,6 +12,7 @@ import itertools
 import logging
 import os
 import platform
+import pickle
 
 from opty import Problem
 from pygait2d import simulate
@@ -54,14 +55,15 @@ logging.basicConfig(
 
 # Primary settings (capitalize)
 EOM_SCALE = 10.0  # scaling factor for eom
-GAIT_CYCLE_NUM = 45  # gait cycle to select from measurment data
+GAIT_CYCLE_NUM = 0  # gait cycle to select from measurment data
 GENFORCE_SCALE = 0.001  # convert to kN and kNm
 if find_library('coinhsl') is None:
     LINEAR_SOLVER = 'mumps'  # passed to IPOPT mumps, spral
 else:
     LINEAR_SOLVER = 'ma57'  # passed to IPOPT ma57, ma77, ma86, ma97
 MAKE_ANIMATION = True
-NUM_NODES = 101  # number of time nodes for the half period
+NUM_NODES = 51  # number of time nodes for the half period
+SAVE_RESULT = False
 SEED = True  # set to integer value for specific seed value, True(=1), or False
 STIFFNESS_EXP = 2  # exponent of the contact stiffness force
 SUBJECT_MASS = 70.0  # kg of subject from trial 20, TODO: extract from metadata
@@ -481,6 +483,36 @@ if WMAR != 0:
     plot_marker_comparison(marker_syms, marker_labels, df, prob, solution)
 
 plt.show()
+
+if SAVE_RESULT:
+    result = {
+        'EOM_SCALE': EOM_SCALE,
+        'GAIT_CYCLE_NUM': GAIT_CYCLE_NUM,
+        'GENFORCE_SCALE': GENFORCE_SCALE,
+        'LINEAR_SOLVER': LINEAR_SOLVER,
+        'MAKE_ANIMATION': MAKE_ANIMATION,
+        'NUM_NODES': NUM_NODES,
+        'SAVE_RESULT': SAVE_RESULT,
+        'SEED': SEED,
+        'STIFFNESS_EXP': STIFFNESS_EXP,
+        'SUBJECT_MASS': SUBJECT_MASS,
+        'USE_WINTER_DATA': USE_WINTER_DATA,
+        'WANG': WANG,
+        'WGRF': WGRF,
+        'WMAR': WMAR,
+        'WREG': WREG,
+        'WTOR': WTOR,
+        'ang_sol_full': ang_sol_full,
+        'tor_sol_full': tor_sol_full,
+        'grf_sol_full': grf_sol_full,
+        'solution': solution,
+        'h': h,
+        'duration': duration,
+        'walking_speed': walking_speed,
+    }
+    with open('result.pkl', 'wb') as f:
+        # TODO : Generate a unique filename based on the settings.
+        pickle.dump(result, f)
 
 if MAKE_ANIMATION:
     animation = animate(syms, prob, solution, traj_map[v], grf_meas)
