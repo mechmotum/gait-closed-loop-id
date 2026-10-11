@@ -101,7 +101,8 @@ if USE_WINTER_DATA:
         raise ValueError("Winter's data does not have markers to track.")
     df = load_winter_data_frame(num_nodes=NUM_NODES, half_cycle=True)
 else:
-    df = load_sample_data(NUM_NODES, gait_cycle_number=GAIT_CYCLE_NUM)
+    df = load_sample_data(NUM_NODES, first_cycle=GAIT_CYCLE_NUM,
+                          half_cycle=True)
 
 duration = df['Time'].values[-1]  # time @ 50%
 h = duration/(NUM_NODES - 1)  # fixed time step in the simulation

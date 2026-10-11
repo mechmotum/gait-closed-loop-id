@@ -713,6 +713,11 @@ def extract_gait_cycle(df, number, last=None):
         raise ValueError(msg.format(number, df['major'].min(),
                                     df['major'].max()))
 
+    if (last is not None) and (last not in df['major'].values):
+        msg = '{} not in {}-{}'
+        raise ValueError(msg.format(last, df['major'].min(),
+                                    df['major'].max()))
+
     if last is None:
         last = number
 
@@ -1008,48 +1013,91 @@ def load_winter_data(num_nodes, as_data_frame=False):
     return duration, walking_speed, num_angles, ang_data
 
 
-def load_sample_data(num_nodes, gait_cycle_number=10, half_cycle=True,
-                     drop_last_node=False):
-    """Returns interpolated data from a measurement file formulated as a single
-    gait cycle of both legs from 0% to ``50%*(1 - 1/(N - 1))`` in the same
-    format as ``load_winter_data()`` (Gait2D sign conventions).
+def load_sample_data(num_nodes, first_cycle=0, last_cycle=None,
+                     half_cycle=True, drop_last_node=False):
+    """Returns interpolated data from a measurement file formulated as either a
+    single gait cycle of both legs from 0% to 50% or 0% to 100% in the same
+    format as ``load_winter_data()`` with Gait2D sign conventions or as
+    multiple full gait cycles.
 
     Parameters
     ==========
     num_nodes : int
-        Desired number of time nodes N for [0%, 50%] of the gait cycle.
-    gait_cycle_number: integer, optional
-        Number from 0 to ``total gait cycles - 1``. Use this to select one of
+        Desired number of time nodes N for the half or full gait cycle or for
+        the set of multuple full gait cycles.
+    first_cycle : integer, optional
+        Number from 0 to ``total # gait cycles - 1``. Use this to select one of
         many gait cycles in the data file.
+    last_cycle : integer, optional
+        Number from 1 to ``total # gait cycles - 1`` indicating the last gait
+        cycle in the range of gait cycles to include. Must be greater than
+        ``first_cycle``.
+    half_cycle : boolean, optional
+        If true and ``last_cycle`` is None, then only the half cycle is
+        returned.
+    drop_last_node : boolean, optional
+        If true, the last node is dropped, leaving a non-inclusive set, e.g.
+        [0%, 50%) for a half gait cycle.
 
     Returns
     =======
-    df : DataFrame, shape(num_nodes or num_nodes - 1, 19)
+    df : DataFrame, shape(num_nodes or num_nodes - 1, 47)
         Index is range(num_nodes) for `drop_last_node=False` or range(num_nodes
         - 1) for `drop_last_node=True`. Column names are:
 
-        1. 'Percent Gait Cycle'
-        2. 'Time'
-        3. 'Speed'
-        4. 'FP2.ForY' (right, vertical) [N]
-        5. 'FP1.ForY' (left, vertical) [N]
-        6. 'FP2.ForX' (right, longitudinal) [N]
-        7. 'FP1.ForX' (left, longitudinal) [N]
-        8. 'Right.Hip.Flexion.Angle' [rad]
-        9. 'Left.Hip.Flexion.Angle' [rad]
-        10. 'Right.Knee.Extension.Angle' [rad]
-        11. 'Left.Knee.Extension.Angle' [rad]
-        12. 'Right.Ankle.DorsiFlexion.Angle' [rad]
-        13. 'Left.Ankle.DorsiFlexion.Angle' [rad]
-        14. 'Right.Hip.Flexion.Moment' [Nm]
-        15. 'Left.Hip.Flexion.Moment' [Nm]
-        16. 'Right.Knee.Extension.Moment' [Nm]
-        17. 'Left.Knee.Extension.Moment' [Nm]
-        18. 'Right.Ankle.DorsiFlexion.Moment' [Nm]
-        19. 'Left.Ankle.DorsiFlexion.Moment' [Nm]
+        Time
+        Percent Gait Cycle
+        Speed
+        LGTRO.PosX
+        LGTRO.PosY
+        LHEE.PosX
+        LHEE.PosY
+        LLEK.PosX
+        LLEK.PosY
+        LLM.PosX
+        LLM.PosY
+        LMT5.PosX
+        LMT5.PosY
+        LSHO.PosX
+        LSHO.PosY
+        LTOE.PosX
+        LTOE.PosY
+        RGTRO.PosX
+        RGTRO.PosY
+        RHEE.PosX
+        RHEE.PosY
+        RLEK.PosX
+        RLEK.PosY
+        RLM.PosX
+        RLM.PosY
+        RMT5.PosX
+        RMT5.PosY
+        RSHO.PosX
+        RSHO.PosY
+        RTOE.PosX
+        RTOE.PosY
+        Right.Hip.Flexion.Angle
+        Right.Knee.Extension.Angle
+        Right.Ankle.DorsiFlexion.Angle
+        Left.Hip.Flexion.Angle
+        Left.Knee.Extension.Angle
+        Left.Ankle.DorsiFlexion.Angle
+        Right.Hip.Flexion.Moment
+        Right.Knee.Extension.Moment
+        Right.Ankle.DorsiFlexion.Moment
+        Left.Hip.Flexion.Moment
+        Left.Knee.Extension.Moment
+        Left.Ankle.DorsiFlexion.Moment
+        FP2.ForX
+        FP2.ForY
+        FP1.ForX
+        FP1.ForY
 
     """
-    df = extract_gait_cycle(pd.read_csv(GAITDATAPATH), gait_cycle_number)
+    df = extract_gait_cycle(pd.read_csv(GAITDATAPATH), first_cycle,
+                            last=last_cycle)
+
+    df['Percent Gait Cycle'] = 100.0*df['Percent Gait Cycle']
 
     # create the mean speed between the two belts
     df['Speed'] = df[['RightBeltSpeed', 'LeftBeltSpeed']].mean(axis=1)
@@ -1076,7 +1124,7 @@ def load_sample_data(num_nodes, gait_cycle_number=10, half_cycle=True,
 
     # keep only the columns needed for analysis in this repository
     keep_cols = (
-        ['Speed'] +
+        ['Percent Gait Cycle', 'Speed'] +
         MARKER_COLS +
         ANG_GAIT2D_COLS +
         TOR_GAIT2D_COLS +
@@ -1086,31 +1134,30 @@ def load_sample_data(num_nodes, gait_cycle_number=10, half_cycle=True,
 
     full_time = df['Original Time'].values
     full_time = full_time - full_time[0]
-    full_percent = df['Percent Gait Cycle'].values  # [0%, ..., 100%)
 
-    # interpolate to find the half cycle duration (at exactly 50%) or full
-    # cycle duration (at exactly 100%)
-    cutoff = 0.5 if half_cycle else 1.0
-    duration = np.interp(cutoff, full_percent, full_time)
+    if last_cycle is None:
+        # interpolate to find the half cycle duration (at exactly 50%) or full
+        # cycle duration (at exactly 100%)
+        cutoff = 50.0 if half_cycle else 100.0
+        duration = np.interp(cutoff, df['Percent Gait Cycle'].values,
+                             full_time)
+    else:
+        duration = full_time[-1]
 
     # NOTE : It is fraught to use arange() for constructing these due to
     # numerical stability of arange(), use linspace()!
     time_step = duration/(num_nodes - 1)
-    percent_step = 100.0*cutoff/(num_nodes - 1)
     if drop_last_node:
         time = np.linspace(0.0, duration - time_step, num=num_nodes - 1)
-        percent = np.linspace(0.0, 100.0*cutoff - percent_step,
-                              num=num_nodes - 1)
     else:
         time = np.linspace(0.0, duration, num=num_nodes)
-        percent = np.linspace(0.0, 100.0*cutoff, num=num_nodes)
 
     interp_vals = interp1d(full_time, vals, axis=0)(time)
-    more_df = pd.DataFrame({'Time': time, 'Percent Gait Cycle': percent})
-    main_df = pd.DataFrame(dict(zip(keep_cols, interp_vals.T)))
-    main_df = pd.concat((more_df, main_df), axis=1)
+    time_df = pd.DataFrame({'Time': time})
+    interp_df = pd.DataFrame(dict(zip(keep_cols, interp_vals.T)))
+    res_df = pd.concat((time_df, interp_df), axis=1)
 
-    return main_df
+    return res_df
 
 
 def plot_joint_comparison(t, angles, torques, angles_meas, torques_meas=None,
@@ -1449,8 +1496,8 @@ if __name__ == "__main__":
     full_cycle_num_nodes = 121
 
     # extracts a gait cycle from our PeerJ data
-    sample_half_df = load_sample_data(half_cycle_num_nodes,
-                                      gait_cycle_number=6, drop_last_node=True)
+    sample_half_df = load_sample_data(half_cycle_num_nodes, first_cycle=6,
+                                      drop_last_node=True)
     sample_half_df[GRF_PLOT_COLS + TOR_PLOT_COLS].plot(
         marker='.', subplots=True, title="Kinetics from PeerJ Data")
 
