@@ -1008,7 +1008,8 @@ def load_winter_data(num_nodes, as_data_frame=False):
     return duration, walking_speed, num_angles, ang_data
 
 
-def load_sample_data(num_nodes, gait_cycle_number=10, drop_last_node=False):
+def load_sample_data(num_nodes, gait_cycle_number=10, half_cycle=True,
+                     drop_last_node=False):
     """Returns interpolated data from a measurement file formulated as a single
     gait cycle of both legs from 0% to ``50%*(1 - 1/(N - 1))`` in the same
     format as ``load_winter_data()`` (Gait2D sign conventions).
@@ -1049,16 +1050,11 @@ def load_sample_data(num_nodes, gait_cycle_number=10, drop_last_node=False):
 
     """
     df = extract_gait_cycle(pd.read_csv(GAITDATAPATH), gait_cycle_number)
-    full_time = df['Original Time'].values
-    full_time = full_time - full_time[0]
-    full_percent = df['Percent Gait Cycle'].values  # [0%, ..., 100%)
-    # interpolate to find the half cycle duration (at exactly 50%)
-    duration = np.interp(0.5, full_percent, full_time)
 
-    speed = df[['RightBeltSpeed', 'LeftBeltSpeed']].mean(axis=1)
-    df['Speed'] = speed
+    # create the mean speed between the two belts
+    df['Speed'] = df[['RightBeltSpeed', 'LeftBeltSpeed']].mean(axis=1)
 
-    # Adds angles needed for simulation comparison.
+    # adds angles needed for Gait2D
     df['Right.Knee.Extension.Angle'] = -df['Right.Knee.Flexion.Angle']
     df['Right.Ankle.DorsiFlexion.Angle'] = \
         -df['Right.Ankle.PlantarFlexion.Angle'] - np.pi/2
@@ -1070,7 +1066,7 @@ def load_sample_data(num_nodes, gait_cycle_number=10, drop_last_node=False):
     df['Left.Ankle.PlantarFlexion.Angle'] = \
         df['Left.Ankle.PlantarFlexion.Angle'] + np.pi/2
 
-    # include the adjusted joint torques for matching to Gait2D:
+    # add joint torques for Gait2D
     df['Right.Knee.Extension.Moment'] = -df['Right.Knee.Flexion.Moment']
     df['Right.Ankle.DorsiFlexion.Moment'] = \
         -df['Right.Ankle.PlantarFlexion.Moment']
@@ -1078,6 +1074,7 @@ def load_sample_data(num_nodes, gait_cycle_number=10, drop_last_node=False):
     df['Left.Ankle.DorsiFlexion.Moment'] = \
         -df['Left.Ankle.PlantarFlexion.Moment']
 
+    # keep only the columns needed for analysis in this repository
     keep_cols = (
         ['Speed'] +
         MARKER_COLS +
@@ -1087,17 +1084,26 @@ def load_sample_data(num_nodes, gait_cycle_number=10, drop_last_node=False):
     )
     vals = df[keep_cols].values
 
+    full_time = df['Original Time'].values
+    full_time = full_time - full_time[0]
+    full_percent = df['Percent Gait Cycle'].values  # [0%, ..., 100%)
+
+    # interpolate to find the half cycle duration (at exactly 50%) or full
+    # cycle duration (at exactly 100%)
+    cutoff = 0.5 if half_cycle else 1.0
+    duration = np.interp(cutoff, full_percent, full_time)
+
     # NOTE : It is fraught to use arange() for constructing these due to
     # numerical stability of arange(), use linspace()!
     time_step = duration/(num_nodes - 1)
+    percent_step = 100.0*cutoff/(num_nodes - 1)
     if drop_last_node:
         time = np.linspace(0.0, duration - time_step, num=num_nodes - 1)
-        percent_step = 50.0/(num_nodes - 1)
-        percent = np.linspace(0.0, 50.0 - percent_step, num=num_nodes - 1)
+        percent = np.linspace(0.0, 100.0*cutoff - percent_step,
+                              num=num_nodes - 1)
     else:
         time = np.linspace(0.0, duration, num=num_nodes)
-        percent_step = 50.0/(num_nodes - 1)
-        percent = np.linspace(0.0, 50.0, num=num_nodes)
+        percent = np.linspace(0.0, 100.0*cutoff, num=num_nodes)
 
     interp_vals = interp1d(full_time, vals, axis=0)(time)
     more_df = pd.DataFrame({'Time': time, 'Percent Gait Cycle': percent})
