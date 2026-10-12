@@ -75,26 +75,29 @@ WMAR = 0  # weight of mean squared marker tracking error (in meters)
 WREG = 1e-6  # weight of mean squared time derivatives
 WTOR = 1000.0  # weight of the mean squared torque (in kNm) objective
 
-print('*'*79)
-print("Settings")
-print('*'*79)
-print('Data source: {}'.format(
-    'Winter' if USE_WINTER_DATA else
-    'Trial 20, Gait Cycle {}'.format(GAIT_CYCLE_NUM)))
-print("Number of nodes: {}".format(NUM_NODES))
-print('Random seed: {}'.format(int(SEED)))
-print('Scaling: EoM {}, Generalized Force {}'.format(
-    EOM_SCALE, GENFORCE_SCALE))
-print(
-"""Objective weights:
-    Joint Angles {}
-    Ground Reaction Forces {}
-    Markers {}
-    Regularization {}
-    Joint Torques {}""".format(WANG, WGRF, WMAR, WREG, WTOR)
-)
-print('IPOPT linear solver: {}'.format(LINEAR_SOLVER))
-print('*'*79)
+
+def print_settings():
+    print('*'*79)
+    print("Settings")
+    print('*'*79)
+    print('Data source: {}'.format(
+        'Winter' if USE_WINTER_DATA else
+        'Trial 20, Gait Cycle {}'.format(GAIT_CYCLE_NUM)))
+    print("Number of nodes: {}".format(NUM_NODES))
+    print('Random seed: {}'.format(int(SEED)))
+    print('Scaling: EoM {}, Generalized Force {}'.format(
+        EOM_SCALE, GENFORCE_SCALE))
+    print(
+    """Objective weights:
+        Joint Angles {}
+        Ground Reaction Forces {}
+        Markers {}
+        Regularization {}
+        Joint Torques {}""".format(WANG, WGRF, WMAR, WREG, WTOR)
+    )
+    print('IPOPT linear solver: {}'.format(LINEAR_SOLVER))
+    print('*'*79)
+
 
 # Load half cycle [0%, 50%] measurement data from Moore et al. 2015 (trial 20)
 # or normative Winter's data (unless tracking markers is requested).
@@ -463,6 +466,9 @@ def solve_gait(speeds, initial_guess):
 
 
 if __name__ == "__main__":
+
+    print_settings()
+
     # make an initial guess from the standing solution
     logger.info('Making an initial guess.')
     fname = os.path.join(DATADIR, 'standing.csv')
