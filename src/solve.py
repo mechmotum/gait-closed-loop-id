@@ -154,115 +154,131 @@ uax, uay, ua, ub, uc, ud, ue, uf, ug = syms.speeds
 Tb, Tc, Td, Te, Tf, Tg, v = syms.specifieds
 reg_syms = syms.states + syms.joint_torques
 
-# The constants are loaded from a file of realistic geometry, mass, inertia,
-# and foot deformation properties of an adult human.
-par_map = SymbolDict(simulate.load_constants(
-    syms.constants, os.path.join(DATADIR, 'example_constants.yml')))
-if STIFFNESS_EXP == 2:
-    # Change stiffness value to give a 10mm static compression for a 1 kN load
-    # with a quadratic force model.
-    par_map['kc'] = 1e7
 
-# If there is calibration pose data, update the constants based on that
-# subject's size.
-if (not USE_WINTER_DATA) and os.path.exists(CALIBDATAPATH):
-    scaled_par = body_segment_parameters_from_calibration(CALIBDATAPATH,
-                                                          SUBJECT_MASS)
-    # TODO : get this to work with SymbolDict: par_map.update(scaled_par)
-    for c in syms.constants:
-        try:
-            par_map[c] = scaled_par[c.name]
-        except KeyError:
-            pass
+def create_known_parameters_map():
+    # The constants are loaded from a file of realistic geometry, mass,
+    # inertia, and foot deformation properties of an adult human.
+    par_map = SymbolDict(simulate.load_constants(
+        syms.constants, os.path.join(DATADIR, 'example_constants.yml')))
+    if STIFFNESS_EXP == 2:
+        # Change stiffness value to give a 10mm static compression for a 1 kN
+        # load with a quadratic force model.
+        par_map['kc'] = 1e7
 
-# Bound all the states to human realizable ranges.
-#
-# - The trunk should stay generally upright and be at a possible walking
-#   height.
-# - Only let the hip, knee, and ankle flex and extend to realistic limits.
-# - Put a maximum on the peak torque values.
-bounds = {
-    qax: (-1.0, 1.0),
-    qay: (0.5, 1.5),
-    qa: np.deg2rad((-60.0, 60.0)),
-    uax: (-1.0, 1.0),
-    uay: (-1.0, 1.0),
-}
-# hip
-bounds.update({k: (-np.deg2rad(60.0), np.deg2rad(60.0))
-               for k in [qb, qe]})
-# knee
-bounds.update({k: (-np.deg2rad(90.0), 0.0)
-               for k in [qc, qf]})
-# foot
-bounds.update({k: (-np.deg2rad(40.0), np.deg2rad(40.0))
-               for k in [qd, qg]})
-# all rotational speeds
-bounds.update({k: (-np.deg2rad(400.0), np.deg2rad(400.0))
-               for k in [ua, ub, uc, ud, ue, uf, ug]})
-# all joint torques
-bounds.update({k: (-600.0, 600.0)
-               for k in [Tb, Tc, Td, Te, Tf, Tg]})
-# TODO : Add bounds for marker trajectories and ground reaction forces.
+    # If there is calibration pose data, update the constants based on that
+    # subject's size.
+    if (not USE_WINTER_DATA) and os.path.exists(CALIBDATAPATH):
+        scaled_par = body_segment_parameters_from_calibration(CALIBDATAPATH,
+                                                            SUBJECT_MASS)
+        # TODO : get this to work with SymbolDict: par_map.update(scaled_par)
+        for c in syms.constants:
+            try:
+                par_map[c] = scaled_par[c.name]
+            except KeyError:
+                pass
 
-# To enforce a half period, set the right leg's angles at the initial time to
-# be equal to the left leg's angles at the final time and vice versa. The same
-# goes for the joint angular rates.
-instance_constraints = (
-    qax.func(0*h) - qax.func(duration),
-    qay.func(0*h) - qay.func(duration),
-    qa.func(0*h) - qa.func(duration),
-    qb.func(0*h) - qe.func(duration),
-    qc.func(0*h) - qf.func(duration),
-    qd.func(0*h) - qg.func(duration),
-    qe.func(0*h) - qb.func(duration),
-    qf.func(0*h) - qc.func(duration),
-    qg.func(0*h) - qd.func(duration),
-    uax.func(0*h) - uax.func(duration),
-    uay.func(0*h) - uay.func(duration),
-    ua.func(0*h) - ua.func(duration),
-    ub.func(0*h) - ue.func(duration),
-    uc.func(0*h) - uf.func(duration),
-    ud.func(0*h) - ug.func(duration),
-    ue.func(0*h) - ub.func(duration),
-    uf.func(0*h) - uc.func(duration),
-    ug.func(0*h) - ud.func(duration),
-    # torques must also be periodic, because torques at t=0 are never used with
-    # Backward Euler, and would otherwise become zero due to the cost function
-    Tb.func(0*h) - Te.func(duration),
-    Tc.func(0*h) - Tf.func(duration),
-    Td.func(0*h) - Tg.func(duration),
-    Te.func(0*h) - Tb.func(duration),
-    Tf.func(0*h) - Tc.func(duration),
-    Tg.func(0*h) - Td.func(duration),
-)
+    return par_map
 
-# When tracking markers, simulated marker trajectories must be periodic too
-if WMAR != 0:
-    for (lx, ly, rx, ry) in itertools.zip_longest(*[iter(marker_syms)]*4):
-        # group per marker: (ank_lx(t), ank_ly(t), ank_rx(t), ank_ry(t))
+
+def create_bounds():
+    # Bound all the states to human realizable ranges.
+    #
+    # - The trunk should stay generally upright and be at a possible walking
+    # height.
+    # - Only let the hip, knee, and ankle flex and extend to realistic limits.
+    # - Put a maximum on the peak torque values.
+    bounds = {
+        qax: (-1.0, 1.0),
+        qay: (0.5, 1.5),
+        qa: np.deg2rad((-60.0, 60.0)),
+        uax: (-1.0, 1.0),
+        uay: (-1.0, 1.0),
+    }
+    # hip
+    bounds.update({k: (-np.deg2rad(60.0), np.deg2rad(60.0))
+                for k in [qb, qe]})
+    # knee
+    bounds.update({k: (-np.deg2rad(90.0), 0.0)
+                for k in [qc, qf]})
+    # foot
+    bounds.update({k: (-np.deg2rad(40.0), np.deg2rad(40.0))
+                for k in [qd, qg]})
+    # all rotational speeds
+    bounds.update({k: (-np.deg2rad(400.0), np.deg2rad(400.0))
+                for k in [ua, ub, uc, ud, ue, uf, ug]})
+    # all joint torques
+    bounds.update({k: (-600.0, 600.0)
+                for k in [Tb, Tc, Td, Te, Tf, Tg]})
+
+    # TODO : Add bounds for marker trajectories and ground reaction forces.
+
+    return bounds
+
+
+def create_instance_constraints():
+    # To enforce a half period, set the right leg's angles at the initial time
+    # to be equal to the left leg's angles at the final time and vice versa.
+    # The same goes for the joint angular rates.
+    instance_constraints = (
+        qax.func(0*h) - qax.func(duration),
+        qay.func(0*h) - qay.func(duration),
+        qa.func(0*h) - qa.func(duration),
+        qb.func(0*h) - qe.func(duration),
+        qc.func(0*h) - qf.func(duration),
+        qd.func(0*h) - qg.func(duration),
+        qe.func(0*h) - qb.func(duration),
+        qf.func(0*h) - qc.func(duration),
+        qg.func(0*h) - qd.func(duration),
+        uax.func(0*h) - uax.func(duration),
+        uay.func(0*h) - uay.func(duration),
+        ua.func(0*h) - ua.func(duration),
+        ub.func(0*h) - ue.func(duration),
+        uc.func(0*h) - uf.func(duration),
+        ud.func(0*h) - ug.func(duration),
+        ue.func(0*h) - ub.func(duration),
+        uf.func(0*h) - uc.func(duration),
+        ug.func(0*h) - ud.func(duration),
+        # torques must also be periodic, because torques at t=0 are never used
+        # with Backward Euler, and would otherwise become zero due to the cost
+        # function
+        Tb.func(0*h) - Te.func(duration),
+        Tc.func(0*h) - Tf.func(duration),
+        Td.func(0*h) - Tg.func(duration),
+        Te.func(0*h) - Tb.func(duration),
+        Tf.func(0*h) - Tc.func(duration),
+        Tg.func(0*h) - Td.func(duration),
+    )
+
+    # When tracking markers, simulated marker trajectories must be periodic too
+    if WMAR != 0:
+        for (lx, ly, rx, ry) in itertools.zip_longest(*[iter(marker_syms)]*4):
+            # group per marker: (ank_lx(t), ank_ly(t), ank_rx(t), ank_ry(t))
+            con = (
+                lx.func(0*h) - rx.func(duration),
+                rx.func(0*h) - lx.func(duration),
+                ly.func(0*h) - ry.func(duration),
+                ry.func(0*h) - ly.func(duration),
+            )
+            instance_constraints += con
+
+    # When tracking ground reaction forces, simulation must be periodic too
+    if WGRF != 0:
+        Frx, Fry, Flx, Fly = grf_syms
         con = (
-            lx.func(0*h) - rx.func(duration),
-            rx.func(0*h) - lx.func(duration),
-            ly.func(0*h) - ry.func(duration),
-            ry.func(0*h) - ly.func(duration),
+            Flx.func(0*h) - Frx.func(duration),
+            Frx.func(0*h) - Flx.func(duration),
+            Fly.func(0*h) - Fry.func(duration),
+            Fry.func(0*h) - Fly.func(duration),
         )
         instance_constraints += con
 
-# When tracking ground reaction forces, simulation must be periodic too
-if WGRF != 0:
-    Frx, Fry, Flx, Fly = grf_syms
-    con = (
-        Flx.func(0*h) - Frx.func(duration),
-        Frx.func(0*h) - Flx.func(duration),
-        Fly.func(0*h) - Fry.func(duration),
-        Fry.func(0*h) - Fly.func(duration),
-    )
-    instance_constraints += con
+    return instance_constraints
 
 
 def obj(prob, free, obj_show=False):
-    """
+    """Returns the objective scalar value given the values of the free
+    optimization variables.
+
     Objective function::
 
         J = WTOR*mean(joint_torque**2)
@@ -271,9 +287,23 @@ def obj(prob, free, obj_show=False):
           + WMAR*mean(marker_error**2)
           + WGRF*mean(grf_error**2)
 
-    The final node is excluded from all means. Due to symmetry and
-    periodicity constraints, it is the mirror image of the first node,
-    and we don't want to include it twice.
+    The final node is excluded from all means. Due to symmetry and periodicity
+    constraints, it is the mirror image of the first node, and we don't want to
+    include it twice.
+
+    Parameters
+    ==========
+    prob : opty.Problem
+        Instantiated optimal control problem.
+    free : ndarray, shape(num_free,)
+        Values of the free optimization variables.
+    obj_show : boolean, optional
+        If true, the objective components will be printed.
+
+    Returns
+    =======
+    f_tot : float
+        Scalar objective value.
 
     """
     # NOTE : slice(0, -1) is used to avoid double counting the periodic
@@ -364,6 +394,8 @@ def obj_grad(prob, free):
     return grad
 
 
+par_map = create_known_parameters_map()
+
 # Create a belt velocity signal v(t)
 traj_map = {
     v: df['Speed'].values,  # shape(NUM_NODES,)
@@ -379,8 +411,8 @@ prob = Problem(
     h,
     known_parameter_map=par_map,
     known_trajectory_map=traj_map,
-    instance_constraints=instance_constraints,
-    bounds=bounds,
+    instance_constraints=create_instance_constraints(),
+    bounds=create_bounds(),
     time_symbol=time_symbol,
     tmp_dir='gait_codegen',  # enables binary caching
 )
@@ -409,31 +441,6 @@ prob.add_option('constr_viol_tol', 1e-4)
 prob.add_option('print_level', 0)
 #prob.add_option('derivative_test', 'first-order')
 
-# make an initial guess from the standing solution
-logger.info('Making an initial guess.')
-fname = os.path.join(DATADIR, 'standing.csv')
-if not os.path.exists(fname):
-    logger.info('Solving standing problem.')
-    standing_sol = find_standing_state()
-else:
-    standing_sol = np.loadtxt(fname)
-
-initial_guess = tile_standing(standing_sol, NUM_NODES, len(syms.joint_angles),
-                              len(syms.states))
-if WMAR != 0:
-    # TODO : The marker positions could be calculated from the generalized
-    # coordinates.
-    mar_traj = np.zeros((len(marker_syms), NUM_NODES))
-    initial_guess = np.concatenate((initial_guess, mar_traj))
-if WGRF != 0:
-    grf_traj = np.zeros((len(grf_syms), NUM_NODES))
-    initial_guess = np.concatenate((initial_guess, grf_traj))
-initial_guess = initial_guess.flatten()  # make a single row vector
-if SEED:
-    np.random.seed(SEED)  # this makes the result reproducible
-initial_guess = (initial_guess +
-                 0.01*np.random.random_sample(len(initial_guess)))
-
 
 # Solve the gait optimization problem for given belt speed
 def solve_gait(speeds, initial_guess):
@@ -455,66 +462,92 @@ def solve_gait(speeds, initial_guess):
     return solution
 
 
-# solve for a series of increasing speeds, ending at the required speed
-for speed_scale in np.linspace(0.1, 1.0, num=10):
-    speeds = speed_scale*df['Speed'].values
-    solution = solve_gait(speeds, initial_guess)
-    initial_guess = solution  # use this solution as guess for the next problem
+if __name__ == "__main__":
+    # make an initial guess from the standing solution
+    logger.info('Making an initial guess.')
+    fname = os.path.join(DATADIR, 'standing.csv')
+    if not os.path.exists(fname):
+        logger.info('Solving standing problem.')
+        standing_sol = find_standing_state()
+    else:
+        standing_sol = np.loadtxt(fname)
 
-# extract angles and torques (simulation and measured)
-ang_sol, tor_sol, grf_sol = extract_solution(syms, prob, solution)
-ang_meas = df[ANG_GAIT2D_COLS].values[:-1, :]  # shape(N-1, 6)
-tor_meas = df[TOR_GAIT2D_COLS].values[:-1, :]  # shape(N-1, 6)
-grf_meas = df[GRF_GAIT2D_COLS].values[:-1, :]  # shape(N-1, 4)
+    initial_guess = tile_standing(standing_sol, NUM_NODES,
+                                  len(syms.joint_angles), len(syms.states))
+    if WMAR != 0:
+        # TODO : The marker positions could be calculated from the generalized
+        # coordinates.
+        mar_traj = np.zeros((len(marker_syms), NUM_NODES))
+        initial_guess = np.concatenate((initial_guess, mar_traj))
+    if WGRF != 0:
+        grf_traj = np.zeros((len(grf_syms), NUM_NODES))
+        initial_guess = np.concatenate((initial_guess, grf_traj))
+    initial_guess = initial_guess.flatten()  # make a single row vector
+    if SEED:
+        np.random.seed(SEED)  # this makes the result reproducible
+    initial_guess = (initial_guess +
+                    0.01*np.random.random_sample(len(initial_guess)))
 
-# construct a right side full gait cycle trajectory
-plot_time = np.linspace(0.0, duration - h, num=2*NUM_NODES - 1)
-ang_sol_full, tor_sol_full, grf_sol_full = full_gait_from_half(
-    ang_sol, tor_sol, grf_sol)
-ang_meas_full, tor_meas_full, grf_meas_full = full_gait_from_half(
-    ang_meas, tor_meas, grf_meas)
+    # solve for a series of increasing speeds, ending at the required speed
+    for speed_scale in np.linspace(0.1, 1.0, num=10):
+        speeds = speed_scale*df['Speed'].values
+        solution = solve_gait(speeds, initial_guess)
+        initial_guess = solution  # use this solution as guess for the next problem
 
-# Generate plots and animations
-plot_joint_comparison(plot_time, ang_sol_full, tor_sol_full, ang_meas_full,
-                      torques_meas=tor_meas_full, grf=grf_sol_full,
-                      grf_meas=grf_meas_full)
+    # extract angles and torques (simulation and measured)
+    ang_sol, tor_sol, grf_sol = extract_solution(syms, prob, solution)
+    ang_meas = df[ANG_GAIT2D_COLS].values[:-1, :]  # shape(N-1, 6)
+    tor_meas = df[TOR_GAIT2D_COLS].values[:-1, :]  # shape(N-1, 6)
+    grf_meas = df[GRF_GAIT2D_COLS].values[:-1, :]  # shape(N-1, 4)
 
-if WMAR != 0:
-    plot_marker_comparison(marker_syms, marker_labels, df, prob, solution)
+    # construct a right side full gait cycle trajectory
+    plot_time = np.linspace(0.0, duration - h, num=2*NUM_NODES - 1)
+    ang_sol_full, tor_sol_full, grf_sol_full = full_gait_from_half(
+        ang_sol, tor_sol, grf_sol)
+    ang_meas_full, tor_meas_full, grf_meas_full = full_gait_from_half(
+        ang_meas, tor_meas, grf_meas)
 
-plt.show()
+    # Generate plots and animations
+    plot_joint_comparison(plot_time, ang_sol_full, tor_sol_full, ang_meas_full,
+                        torques_meas=tor_meas_full, grf=grf_sol_full,
+                        grf_meas=grf_meas_full)
 
-if SAVE_RESULT:
-    result = {
-        'EOM_SCALE': EOM_SCALE,
-        'GAIT_CYCLE_NUM': GAIT_CYCLE_NUM,
-        'GENFORCE_SCALE': GENFORCE_SCALE,
-        'LINEAR_SOLVER': LINEAR_SOLVER,
-        'MAKE_ANIMATION': MAKE_ANIMATION,
-        'NUM_NODES': NUM_NODES,
-        'SAVE_RESULT': SAVE_RESULT,
-        'SEED': SEED,
-        'STIFFNESS_EXP': STIFFNESS_EXP,
-        'SUBJECT_MASS': SUBJECT_MASS,
-        'USE_WINTER_DATA': USE_WINTER_DATA,
-        'WANG': WANG,
-        'WGRF': WGRF,
-        'WMAR': WMAR,
-        'WREG': WREG,
-        'WTOR': WTOR,
-        'ang_sol_full': ang_sol_full,
-        'tor_sol_full': tor_sol_full,
-        'grf_sol_full': grf_sol_full,
-        'solution': solution,
-        'h': h,
-        'duration': duration,
-        'walking_speed': walking_speed,
-    }
-    with open('result.pkl', 'wb') as f:
-        # TODO : Generate a unique filename based on the settings.
-        pickle.dump(result, f)
+    if WMAR != 0:
+        plot_marker_comparison(marker_syms, marker_labels, df, prob, solution)
 
-if MAKE_ANIMATION:
-    animation = animate(syms, prob, solution, traj_map[v], grf_meas)
-    animation.save('human_gait.gif', fps=int(1.0/h))
     plt.show()
+
+    if SAVE_RESULT:
+        result = {
+            'EOM_SCALE': EOM_SCALE,
+            'GAIT_CYCLE_NUM': GAIT_CYCLE_NUM,
+            'GENFORCE_SCALE': GENFORCE_SCALE,
+            'LINEAR_SOLVER': LINEAR_SOLVER,
+            'MAKE_ANIMATION': MAKE_ANIMATION,
+            'NUM_NODES': NUM_NODES,
+            'SAVE_RESULT': SAVE_RESULT,
+            'SEED': SEED,
+            'STIFFNESS_EXP': STIFFNESS_EXP,
+            'SUBJECT_MASS': SUBJECT_MASS,
+            'USE_WINTER_DATA': USE_WINTER_DATA,
+            'WANG': WANG,
+            'WGRF': WGRF,
+            'WMAR': WMAR,
+            'WREG': WREG,
+            'WTOR': WTOR,
+            'ang_sol_full': ang_sol_full,
+            'tor_sol_full': tor_sol_full,
+            'grf_sol_full': grf_sol_full,
+            'solution': solution,
+            'h': h,
+            'duration': duration,
+            'walking_speed': walking_speed,
+        }
+        with open('result.pkl', 'wb') as f:
+            # TODO : Generate a unique filename based on the settings.
+            pickle.dump(result, f)
+
+    if MAKE_ANIMATION:
+        animation = animate(syms, prob, solution, traj_map[v], grf_meas)
+        animation.save('human_gait.gif', fps=int(1.0/h))
+        plt.show()
