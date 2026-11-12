@@ -54,63 +54,66 @@ logging.basicConfig(
 )
 
 # Primary settings (capitalize)
-EOM_SCALE = 10.0  # scaling factor for eom
-GAIT_CYCLE_NUM = 0  # gait cycle to select from measurment data
-GENFORCE_SCALE = 0.001  # convert to kN and kNm
-if find_library('coinhsl') is None:
-    LINEAR_SOLVER = 'mumps'  # passed to IPOPT mumps, spral
-else:
-    LINEAR_SOLVER = 'ma57'  # passed to IPOPT ma57, ma77, ma86, ma97
-MAKE_ANIMATION = True
-NUM_NODES = 51  # number of time nodes for the half period
-SAVE_RESULT = False
-SEED = True  # set to integer value for specific seed value, True(=1), or False
-STIFFNESS_EXP = 2  # exponent of the contact stiffness force
-SUBJECT_MASS = 70.0  # kg of subject from trial 20, TODO: extract from metadata
-USE_WINTER_DATA = False  # if we want to track Winter's gait data
-# Remove parts of the objective by setting to integer 0.
-WANG = 1000.0  # weight of mean squared angle tracking error (in rad)
-WGRF = 0.0005  # weight of mean squared GRF tracking error (in Newtons)
-WMAR = 0  # weight of mean squared marker tracking error (in meters)
-WREG = 1e-6  # weight of mean squared time derivatives
-WTOR = 1000.0  # weight of the mean squared torque (in kNm) objective
+settings = {
+    "EOM_SCALE": 10.0,  # scaling factor for eom
+    "GAIT_CYCLE_NUM": 0,  # gait cycle to select from measurment data
+    "GENFORCE_SCALE": 0.001,  # convert to kN and kNm
+    # passed to IPOPT: mumps, spral, ma57, ma77, ma86, ma97
+    "LINEAR_SOLVER": 'mumps' if find_library('coinhsl') is None else 'ma57',
+    "MAKE_ANIMATION": True,
+    "NUM_NODES": 51,  # number of time nodes for the half period
+    "SAVE_RESULT": False,
+    "SEED": True,  # set to integer value for specific seed value, True(=1), or False
+    "STIFFNESS_EXP": 2,  # exponent of the contact stiffness force
+    "SUBJECT_MASS": 70.0,  # kg of subject from trial 20, TODO: extract from metadata
+    "USE_WINTER_DATA": False,  # if we want to track Winter's gait data
+    # Remove parts of the objective by setting to integer 0.
+    "WANG": 1000.0,  # weight of mean squared angle tracking error (in rad)
+    "WGRF": 0.0005,  # weight of mean squared GRF tracking error (in Newtons)
+    "WMAR": 0,  # weight of mean squared marker tracking error (in meters)
+    "WREG": 1e-6,  # weight of mean squared time derivatives
+    "WTOR": 1000.0,  # weight of the mean squared torque (in kNm) objective
+}
 
 
-def print_settings():
+def print_settings(s):
     print('*'*79)
     print("Settings")
     print('*'*79)
     print('Data source: {}'.format(
-        'Winter' if USE_WINTER_DATA else
-        'Trial 20, Gait Cycle {}'.format(GAIT_CYCLE_NUM)))
-    print("Number of nodes: {}".format(NUM_NODES))
-    print('Random seed: {}'.format(int(SEED)))
+        'Winter' if s['USE_WINTER_DATA'] else
+        'Trial 20, Gait Cycle {}'.format(s['GAIT_CYCLE_NUM'])))
+    print("Number of nodes: {}".format(s['NUM_NODES']))
+    print('Random seed: {}'.format(int(s['SEED'])))
     print('Scaling: EoM {}, Generalized Force {}'.format(
-        EOM_SCALE, GENFORCE_SCALE))
+        s['EOM_SCALE'], s['GENFORCE_SCALE']))
     print(
     """Objective weights:
         Joint Angles {}
         Ground Reaction Forces {}
         Markers {}
         Regularization {}
-        Joint Torques {}""".format(WANG, WGRF, WMAR, WREG, WTOR)
+        Joint Torques {}""".format(s['WANG'], s['WGRF'], s['WMAR'], s['WREG'],
+                                   s['WTOR'])
     )
-    print('IPOPT linear solver: {}'.format(LINEAR_SOLVER))
+    print('IPOPT linear solver: {}'.format(s['LINEAR_SOLVER']))
     print('*'*79)
 
 
 # Load half cycle [0%, 50%] measurement data from Moore et al. 2015 (trial 20)
 # or normative Winter's data (unless tracking markers is requested).
-if USE_WINTER_DATA:
-    if WMAR != 0:
+if settings['USE_WINTER_DATA']:
+    if settings['WMAR'] != 0:
         raise ValueError("Winter's data does not have markers to track.")
-    df = load_winter_data_frame(num_nodes=NUM_NODES, half_cycle=True)
+    df = load_winter_data_frame(num_nodes=settings['NUM_NODES'],
+                                half_cycle=True)
 else:
-    df = load_sample_data(NUM_NODES, first_cycle=GAIT_CYCLE_NUM,
+    df = load_sample_data(settings['NUM_NODES'],
+                          first_cycle=settings['GAIT_CYCLE_NUM'],
                           half_cycle=True)
 
 duration = df['Time'].values[-1]  # time @ 50%
-h = duration/(NUM_NODES - 1)  # fixed time step in the simulation
+h = duration/(settings['NUM_NODES'] - 1)  # fixed time step in the simulation
 walking_speed = df['Speed'].mean()
 
 # Derive the equations of motion
@@ -119,27 +122,27 @@ syms = derive_equations_of_motion(
     prevent_ground_penetration=False,
     treadmill=True,
     hand_of_god=False,
-    stiffness_exp=STIFFNESS_EXP,
+    stiffness_exp=settings['STIFFNESS_EXP'],
 )
 eom = syms.equations_of_motion
 logger.info('Number of operations in eom: {}'.format(sm.count_ops(eom)))
 
 # Do an overall scale, and then a unit conversion to kN and kNm
-eom = EOM_SCALE*eom
+eom = settings['EOM_SCALE']*eom
 for i in range(9):
-    eom[9+i] = GENFORCE_SCALE*eom[9+i]
+    eom[9+i] = settings['GENFORCE_SCALE']*eom[9+i]
 
 # Extract angle measurement data [0%, 50%) and flatten
 ang_meas = df[ANG_GAIT2D_COLS].values[:-1, :].transpose().flatten()
 
 # Markers are in units meters, so no scaling applied
-if WMAR != 0:
+if settings['WMAR'] != 0:
     marker_syms, marker_eqs, marker_labels = generate_marker_equations(syms)
     eom = eom.col_join(sm.Matrix(marker_eqs))
     mar_meas = df[marker_labels].values[:-1, :].T.flatten()
 
 # Ground reaction forces are in units Newtons
-if WGRF != 0:
+if settings['WGRF'] != 0:
     grf_syms, grf_eqs, grf_labels = generate_grf_equations(syms)
     eom = eom.col_join(grf_eqs)
     grf_meas = df[grf_labels].values[:-1, :].T.flatten()
@@ -163,16 +166,16 @@ def create_known_parameters_map():
     # inertia, and foot deformation properties of an adult human.
     par_map = SymbolDict(simulate.load_constants(
         syms.constants, os.path.join(DATADIR, 'example_constants.yml')))
-    if STIFFNESS_EXP == 2:
+    if settings['STIFFNESS_EXP'] == 2:
         # Change stiffness value to give a 10mm static compression for a 1 kN
         # load with a quadratic force model.
         par_map['kc'] = 1e7
 
     # If there is calibration pose data, update the constants based on that
     # subject's size.
-    if (not USE_WINTER_DATA) and os.path.exists(CALIBDATAPATH):
+    if (not settings['USE_WINTER_DATA']) and os.path.exists(CALIBDATAPATH):
         scaled_par = body_segment_parameters_from_calibration(CALIBDATAPATH,
-                                                            SUBJECT_MASS)
+                                                            settings['SUBJECT_MASS'])
         # TODO : get this to work with SymbolDict: par_map.update(scaled_par)
         for c in syms.constants:
             try:
@@ -253,7 +256,7 @@ def create_instance_constraints():
     )
 
     # When tracking markers, simulated marker trajectories must be periodic too
-    if WMAR != 0:
+    if settings['WMAR'] != 0:
         for (lx, ly, rx, ry) in itertools.zip_longest(*[iter(marker_syms)]*4):
             # group per marker: (ank_lx(t), ank_ly(t), ank_rx(t), ank_ry(t))
             con = (
@@ -265,7 +268,7 @@ def create_instance_constraints():
             instance_constraints += con
 
     # When tracking ground reaction forces, simulation must be periodic too
-    if WGRF != 0:
+    if settings['WGRF'] != 0:
         Frx, Fry, Flx, Fly = grf_syms
         con = (
             Flx.func(0*h) - Frx.func(duration),
@@ -314,45 +317,45 @@ def obj(prob, free, obj_show=False):
 
     # minimize mean joint torque
     tor_vals = extract_values(prob, free, *syms.joint_torques, slice=(0, -1))
-    f_tor = 1e-6*WTOR*np.sum(tor_vals**2)/len(tor_vals)
+    f_tor = 1e-6*settings['WTOR']*np.sum(tor_vals**2)/len(tor_vals)
 
     f_tot = f_tor
 
     # minimize mean angle tracking error
-    if WANG != 0:
+    if settings['WANG'] != 0:
         ang_vals = extract_values(prob, free, *syms.joint_angles,
                                   slice=(0, -1))
-        f_ang = WANG*np.sum((ang_vals - ang_meas)**2)/len(ang_vals)
+        f_ang = settings['WANG']*np.sum((ang_vals - ang_meas)**2)/len(ang_vals)
         f_tot += f_ang
 
     # smooth all regularization trajectories
-    if WREG != 0:
+    if settings['WREG'] != 0:
         diff = extract_values_diff(prob, free, *reg_syms)
-        f_reg = WREG*np.sum(diff**2)/h**2/len(diff)
+        f_reg = settings['WREG']*np.sum(diff**2)/h**2/len(diff)
         f_tot += f_reg
 
     # minimize mean marker tracking error
-    if WMAR != 0:
+    if settings['WMAR'] != 0:
         # vals -> shape(num_markers*(num_nodes - 1), 1)
         mar_vals = extract_values(prob, free, *marker_syms, slice=(0, -1))
-        f_mar = WMAR*np.sum((mar_vals - mar_meas)**2)/len(mar_vals)
+        f_mar = settings['WMAR']*np.sum((mar_vals - mar_meas)**2)/len(mar_vals)
         f_tot += f_mar
 
     # minimize mean ground reaction force tracking error
-    if WGRF != 0:
+    if settings['WGRF'] != 0:
         grf_vals = extract_values(prob, free, *grf_syms, slice=(0, -1))
-        f_grf = WGRF*np.sum((grf_vals - grf_meas)**2)/len(grf_vals)
+        f_grf = settings['WGRF']*np.sum((grf_vals - grf_meas)**2)/len(grf_vals)
         f_tot += f_grf
 
     if obj_show:
         msg = (f"   obj: {f_tot:.3f} = {f_tor:.3f}(torque)")
-        if WREG != 0:
+        if settings['WREG'] != 0:
             msg += f" + {f_reg:.3f}(reg)"
-        if WANG != 0:
+        if settings['WANG'] != 0:
             msg += f" + {f_ang:.3f}(angle)"
-        if WMAR != 0:
+        if settings['WMAR'] != 0:
             msg += f" + {f_mar:.3f}(marker)"
-        if WGRF != 0:
+        if settings['WGRF'] != 0:
             msg += f" + {f_grf:.3f}(grf)"
         print(msg)
 
@@ -364,34 +367,34 @@ def obj_grad(prob, free):
     grad = np.zeros_like(free)
 
     tor_vals = extract_values(prob, free, *syms.joint_torques, slice=(0, -1))
-    fill_free(prob, grad, 2e-6*WTOR*tor_vals/len(tor_vals),
+    fill_free(prob, grad, 2e-6*settings['WTOR']*tor_vals/len(tor_vals),
               *syms.joint_torques, slice=(0, -1))
 
-    if WANG != 0:
+    if settings['WANG'] != 0:
         ang_vals = extract_values(prob, free, *syms.joint_angles,
                                   slice=(0, -1))
         fill_free(prob, grad,
-                  2.0*WANG*(ang_vals - ang_meas)/len(ang_vals),
+                  2.0*settings['WANG']*(ang_vals - ang_meas)/len(ang_vals),
                   *syms.joint_angles, slice=(0, -1))
-    if WREG != 0:
+    if settings['WREG'] != 0:
         # NOTE : The regularization should be added on top of the tor_vals and
         # ang_vals.
         diff = extract_values_diff(prob, free, *reg_syms)
-        reg_grad = WREG*2.0*diff/h**2/len(diff)
+        reg_grad = settings['WREG']*2.0*diff/h**2/len(diff)
         # NOTE : Add twice with a shift for correct gradient.
         fill_free(prob, grad, -reg_grad, *reg_syms, slice=(None, -1), add=True)
         fill_free(prob, grad, reg_grad, *reg_syms, slice=(1, None), add=True)
 
-    if WMAR != 0:
+    if settings['WMAR'] != 0:
         mar_vals = extract_values(prob, free, *marker_syms, slice=(0, -1))
         fill_free(prob, grad,
-                  2.0*WMAR*(mar_vals - mar_meas)/len(mar_vals),
+                  2.0*settings['WMAR']*(mar_vals - mar_meas)/len(mar_vals),
                   *marker_syms, slice=(0, -1))
 
-    if WGRF != 0:
+    if settings['WGRF'] != 0:
         grf_vals = extract_values(prob, free, *grf_syms, slice=(0, -1))
         fill_free(prob, grad,
-                  2.0*WGRF*(grf_vals - grf_meas)/len(grf_vals),
+                  2.0*settings['WGRF']*(grf_vals - grf_meas)/len(grf_vals),
                   *grf_syms, slice=(0, -1))
 
     return grad
@@ -401,7 +404,7 @@ par_map = create_known_parameters_map()
 
 # Create a belt velocity signal v(t)
 traj_map = {
-    v: df['Speed'].values,  # shape(NUM_NODES,)
+    v: df['Speed'].values,  # shape(settings['NUM_NODES'],)
 }
 
 logger.info('Creating the opty problem.')
@@ -410,7 +413,7 @@ prob = Problem(
     obj_grad,
     eom,
     syms.states,
-    NUM_NODES,
+    settings['NUM_NODES'],
     h,
     known_parameter_map=par_map,
     known_trajectory_map=traj_map,
@@ -425,17 +428,17 @@ prob = Problem(
 # unique solution. We therefore require qax(t=0) = 0
 # (it would be better to use the bounds to require free[0]=zero, but I don't
 # know how to do this in opty, I only see bounds on the whole trajectory)
-if WMAR == 0:
+if settings['WMAR'] == 0:
     # instance_constraints += (qax.func(0*h),)
     prob.lower_bound[0] = 0.0
     prob.upper_bound[0] = 0.0
 
-if LINEAR_SOLVER.startswith('ma'):
+if settings['LINEAR_SOLVER'].startswith('ma'):
     # TODO : Load correct shared lib on Windows/Darwin
     if platform.system() == 'Linux':
         prob.add_option('hsllib', 'libcoinhsl.so')
-    prob.add_option('linear_solver', LINEAR_SOLVER)
-    if LINEAR_SOLVER == 'ma57':
+    prob.add_option('linear_solver', settings['LINEAR_SOLVER'])
+    if settings['LINEAR_SOLVER'] == 'ma57':
         prob.add_option('ma57_pivot_order', 2)
 
 prob.add_option('max_iter', 3000)
@@ -467,7 +470,7 @@ def solve_gait(speeds, initial_guess):
 
 if __name__ == "__main__":
 
-    print_settings()
+    print_settings(settings)
 
     # make an initial guess from the standing solution
     logger.info('Making an initial guess.')
@@ -478,19 +481,19 @@ if __name__ == "__main__":
     else:
         standing_sol = np.loadtxt(fname)
 
-    initial_guess = tile_standing(standing_sol, NUM_NODES,
+    initial_guess = tile_standing(standing_sol, settings['NUM_NODES'],
                                   len(syms.joint_angles), len(syms.states))
-    if WMAR != 0:
+    if settings['WMAR'] != 0:
         # TODO : The marker positions could be calculated from the generalized
         # coordinates.
-        mar_traj = np.zeros((len(marker_syms), NUM_NODES))
+        mar_traj = np.zeros((len(marker_syms), settings['NUM_NODES']))
         initial_guess = np.concatenate((initial_guess, mar_traj))
-    if WGRF != 0:
-        grf_traj = np.zeros((len(grf_syms), NUM_NODES))
+    if settings['WGRF'] != 0:
+        grf_traj = np.zeros((len(grf_syms), settings['NUM_NODES']))
         initial_guess = np.concatenate((initial_guess, grf_traj))
     initial_guess = initial_guess.flatten()  # make a single row vector
-    if SEED:
-        np.random.seed(SEED)  # this makes the result reproducible
+    if settings['SEED']:
+        np.random.seed(settings['SEED'])  # this makes the result reproducible
     initial_guess = (initial_guess +
                     0.01*np.random.random_sample(len(initial_guess)))
 
@@ -498,7 +501,7 @@ if __name__ == "__main__":
     for speed_scale in np.linspace(0.1, 1.0, num=10):
         speeds = speed_scale*df['Speed'].values
         solution = solve_gait(speeds, initial_guess)
-        initial_guess = solution  # use this solution as guess for the next problem
+        initial_guess = solution  # use as guess for the next problem
 
     # extract angles and torques (simulation and measured)
     ang_sol, tor_sol, grf_sol = extract_solution(syms, prob, solution)
@@ -507,7 +510,7 @@ if __name__ == "__main__":
     grf_meas = df[GRF_GAIT2D_COLS].values[:-1, :]  # shape(N-1, 4)
 
     # construct a right side full gait cycle trajectory
-    plot_time = np.linspace(0.0, duration - h, num=2*NUM_NODES - 1)
+    plot_time = np.linspace(0.0, duration - h, num=2*settings['NUM_NODES'] - 1)
     ang_sol_full, tor_sol_full, grf_sol_full = full_gait_from_half(
         ang_sol, tor_sol, grf_sol)
     ang_meas_full, tor_meas_full, grf_meas_full = full_gait_from_half(
@@ -518,29 +521,29 @@ if __name__ == "__main__":
                         torques_meas=tor_meas_full, grf=grf_sol_full,
                         grf_meas=grf_meas_full)
 
-    if WMAR != 0:
+    if settings['WMAR'] != 0:
         plot_marker_comparison(marker_syms, marker_labels, df, prob, solution)
 
     plt.show()
 
-    if SAVE_RESULT:
+    if settings['SAVE_RESULT']:
         result = {
-            'EOM_SCALE': EOM_SCALE,
-            'GAIT_CYCLE_NUM': GAIT_CYCLE_NUM,
-            'GENFORCE_SCALE': GENFORCE_SCALE,
-            'LINEAR_SOLVER': LINEAR_SOLVER,
-            'MAKE_ANIMATION': MAKE_ANIMATION,
-            'NUM_NODES': NUM_NODES,
-            'SAVE_RESULT': SAVE_RESULT,
-            'SEED': SEED,
-            'STIFFNESS_EXP': STIFFNESS_EXP,
-            'SUBJECT_MASS': SUBJECT_MASS,
-            'USE_WINTER_DATA': USE_WINTER_DATA,
-            'WANG': WANG,
-            'WGRF': WGRF,
-            'WMAR': WMAR,
-            'WREG': WREG,
-            'WTOR': WTOR,
+            'EOM_SCALE': settings['EOM_SCALE'],
+            'GAIT_CYCLE_NUM': settings['GAIT_CYCLE_NUM'],
+            'GENFORCE_SCALE': settings['GENFORCE_SCALE'],
+            'LINEAR_SOLVER': settings['LINEAR_SOLVER'],
+            'MAKE_ANIMATION': settings['MAKE_ANIMATION'],
+            'NUM_NODES': settings['NUM_NODES'],
+            'SAVE_RESULT': settings['SAVE_RESULT'],
+            'SEED': settings['SEED'],
+            'STIFFNESS_EXP': settings['STIFFNESS_EXP'],
+            'SUBJECT_MASS': settings['SUBJECT_MASS'],
+            'USE_WINTER_DATA': settings['USE_WINTER_DATA'],
+            'WANG': settings['WANG'],
+            'WGRF': settings['WGRF'],
+            'WMAR': settings['WMAR'],
+            'WREG': settings['WREG'],
+            'WTOR': settings['WTOR'],
             'ang_sol_full': ang_sol_full,
             'tor_sol_full': tor_sol_full,
             'grf_sol_full': grf_sol_full,
@@ -553,7 +556,7 @@ if __name__ == "__main__":
             # TODO : Generate a unique filename based on the settings.
             pickle.dump(result, f)
 
-    if MAKE_ANIMATION:
+    if settings['MAKE_ANIMATION']:
         animation = animate(syms, prob, solution, traj_map[v], grf_meas)
         animation.save('human_gait.gif', fps=int(1.0/h))
         plt.show()
