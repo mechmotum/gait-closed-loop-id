@@ -100,21 +100,25 @@ def print_settings(s):
     print('*'*79)
 
 
-# Load half cycle [0%, 50%] measurement data from Moore et al. 2015 (trial 20)
-# or normative Winter's data (unless tracking markers is requested).
-if settings['USE_WINTER_DATA']:
-    if settings['WMAR'] != 0:
-        raise ValueError("Winter's data does not have markers to track.")
-    df = load_winter_data_frame(num_nodes=settings['NUM_NODES'],
-                                half_cycle=True)
-else:
-    df = load_sample_data(settings['NUM_NODES'],
-                          first_cycle=settings['GAIT_CYCLE_NUM'],
-                          half_cycle=True)
+def load_data(s):
+    # Load half cycle [0%, 50%] measurement data from Moore et al. 2015 (trial
+    # 20) or normative Winter's data (unless tracking markers is requested).
 
-duration = df['Time'].values[-1]  # time @ 50%
-h = duration/(settings['NUM_NODES'] - 1)  # fixed time step in the simulation
-walking_speed = df['Speed'].mean()
+    if s['USE_WINTER_DATA']:
+        if s['WMAR'] != 0:
+            raise ValueError("Winter's data does not have markers to track.")
+        df = load_winter_data_frame(num_nodes=s['NUM_NODES'], half_cycle=True)
+    else:
+        df = load_sample_data(s['NUM_NODES'], first_cycle=s['GAIT_CYCLE_NUM'],
+                              half_cycle=True)
+    duration = df['Time'].values[-1]  # time @ 50%
+    h = duration/(s['NUM_NODES'] - 1)  # fixed time step in the simulation
+    walking_speed = df['Speed'].mean()
+
+    return df, duration, h, walking_speed
+
+
+df, duration, h, walking_speed = load_data(settings)
 
 # Derive the equations of motion
 logger.info('Deriving the equations of motion.')
@@ -161,21 +165,21 @@ Tb, Tc, Td, Te, Tf, Tg, v = syms.specifieds
 reg_syms = syms.states + syms.joint_torques
 
 
-def create_known_parameters_map():
+def create_known_parameters_map(s):
     # The constants are loaded from a file of realistic geometry, mass,
     # inertia, and foot deformation properties of an adult human.
     par_map = SymbolDict(simulate.load_constants(
         syms.constants, os.path.join(DATADIR, 'example_constants.yml')))
-    if settings['STIFFNESS_EXP'] == 2:
+    if s['STIFFNESS_EXP'] == 2:
         # Change stiffness value to give a 10mm static compression for a 1 kN
         # load with a quadratic force model.
         par_map['kc'] = 1e7
 
     # If there is calibration pose data, update the constants based on that
     # subject's size.
-    if (not settings['USE_WINTER_DATA']) and os.path.exists(CALIBDATAPATH):
+    if (not s['USE_WINTER_DATA']) and os.path.exists(CALIBDATAPATH):
         scaled_par = body_segment_parameters_from_calibration(CALIBDATAPATH,
-                                                            settings['SUBJECT_MASS'])
+                                                            s['SUBJECT_MASS'])
         # TODO : get this to work with SymbolDict: par_map.update(scaled_par)
         for c in syms.constants:
             try:
@@ -221,7 +225,7 @@ def create_bounds():
     return bounds
 
 
-def create_instance_constraints():
+def create_instance_constraints(s):
     # To enforce a half period, set the right leg's angles at the initial time
     # to be equal to the left leg's angles at the final time and vice versa.
     # The same goes for the joint angular rates.
@@ -256,7 +260,7 @@ def create_instance_constraints():
     )
 
     # When tracking markers, simulated marker trajectories must be periodic too
-    if settings['WMAR'] != 0:
+    if s['WMAR'] != 0:
         for (lx, ly, rx, ry) in itertools.zip_longest(*[iter(marker_syms)]*4):
             # group per marker: (ank_lx(t), ank_ly(t), ank_rx(t), ank_ry(t))
             con = (
@@ -268,7 +272,7 @@ def create_instance_constraints():
             instance_constraints += con
 
     # When tracking ground reaction forces, simulation must be periodic too
-    if settings['WGRF'] != 0:
+    if s['WGRF'] != 0:
         Frx, Fry, Flx, Fly = grf_syms
         con = (
             Flx.func(0*h) - Frx.func(duration),
@@ -400,7 +404,7 @@ def obj_grad(prob, free):
     return grad
 
 
-par_map = create_known_parameters_map()
+par_map = create_known_parameters_map(settings)
 
 # Create a belt velocity signal v(t)
 traj_map = {
@@ -417,7 +421,7 @@ prob = Problem(
     h,
     known_parameter_map=par_map,
     known_trajectory_map=traj_map,
-    instance_constraints=create_instance_constraints(),
+    instance_constraints=create_instance_constraints(settings),
     bounds=create_bounds(),
     time_symbol=time_symbol,
     tmp_dir='gait_codegen',  # enables binary caching
