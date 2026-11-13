@@ -68,7 +68,7 @@ settings = {
     "STIFFNESS_EXP": 2,  # exponent of the contact stiffness force
     "SUBJECT_MASS": 70.0,  # kg of subject from trial 20, TODO: extract from metadata
     "USE_WINTER_DATA": False,  # if we want to track Winter's gait data
-    # Remove parts of the objective by setting to integer 0.
+    # For weights, remove parts of the objective by setting to integer 0.
     "WANG": 1000.0,  # weight of mean squared angle tracking error (in rad)
     "WGRF": 0.0005,  # weight of mean squared GRF tracking error (in Newtons)
     "WMAR": 0,  # weight of mean squared marker tracking error (in meters)
@@ -129,9 +129,6 @@ def load_data(s):
     return df, duration, h, walking_speed
 
 
-df, duration, h, walking_speed = load_data(settings)
-
-
 def generate_symbolic_eqs(s):
     # Derive the equations of motion
     logger.info('Deriving the equations of motion.')
@@ -180,9 +177,6 @@ def generate_symbolic_eqs(s):
     return syms, msyms
 
 
-syms, msyms = generate_symbolic_eqs(settings)
-
-
 def extract_measurements(s, msyms):
     # Extract angle measurement data [0%, 50%) and flatten
     ang_meas = df[ANG_GAIT2D_COLS].values[:-1, :].transpose().flatten()
@@ -198,22 +192,6 @@ def extract_measurements(s, msyms):
         grf_meas = None
 
     return ang_meas, mar_meas, grf_meas
-
-
-ang_meas, mar_meas, grf_meas = extract_measurements(settings, msyms)
-
-# The generalized coordinates are the hip lateral position qax and veritcal
-# position qay, the trunk angle with respect to vertical qa and the relative
-# joint angles:
-#
-# - right: hip (b), knee (c), ankle (d)
-# - left: hip (e), knee (f), ankle (g)
-#
-# Each joint has a joint torque acting between the adjacent bodies.
-qax, qay, qa, qb, qc, qd, qe, qf, qg = syms.coordinates
-uax, uay, ua, ub, uc, ud, ue, uf, ug = syms.speeds
-Tb, Tc, Td, Te, Tf, Tg, v = syms.specifieds
-reg_syms = syms.states + syms.joint_torques
 
 
 def create_known_parameters_map(s, syms):
@@ -479,6 +457,23 @@ def obj_grad(prob, free):
     return grad
 
 
+df, duration, h, walking_speed = load_data(settings)
+syms, msyms = generate_symbolic_eqs(settings)
+ang_meas, mar_meas, grf_meas = extract_measurements(settings, msyms)
+
+# The generalized coordinates are the hip lateral position qax and veritcal
+# position qay, the trunk angle with respect to vertical qa and the relative
+# joint angles:
+#
+# - right: hip (b), knee (c), ankle (d)
+# - left: hip (e), knee (f), ankle (g)
+#
+# Each joint has a joint torque acting between the adjacent bodies.
+qax, qay, qa, qb, qc, qd, qe, qf, qg = syms.coordinates
+uax, uay, ua, ub, uc, ud, ue, uf, ug = syms.speeds
+Tb, Tc, Td, Te, Tf, Tg, v = syms.specifieds
+reg_syms = syms.states + syms.joint_torques
+
 par_map = create_known_parameters_map(settings, syms)
 
 # Create a belt velocity signal v(t)
@@ -488,6 +483,7 @@ traj_map = {
 
 instance_constraints = create_instance_constraints(settings, syms, msyms,
                                                    duration)
+bounds = create_bounds(syms)
 
 logger.info('Creating the opty problem.')
 prob = Problem(
@@ -500,7 +496,7 @@ prob = Problem(
     known_parameter_map=par_map,
     known_trajectory_map=traj_map,
     instance_constraints=instance_constraints,
-    bounds=create_bounds(syms),
+    bounds=bounds,
     time_symbol=time_symbol,
     tmp_dir='gait_codegen',  # enables binary caching
 )
