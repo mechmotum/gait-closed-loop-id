@@ -13,6 +13,7 @@ import logging
 import os
 import platform
 import pickle
+from dataclasses import dataclass
 
 from opty import Problem
 from pygait2d import simulate
@@ -101,6 +102,16 @@ def print_settings(s):
 
 
 def load_data(s):
+    """
+
+    Returns
+    =======
+    df : DataFrame
+    duration : float
+    h : float
+    walking_speed : float
+
+    """
     # Load half cycle [0%, 50%] measurement data from Moore et al. 2015 (trial
     # 20) or normative Winter's data (unless tracking markers is requested).
 
@@ -120,36 +131,64 @@ def load_data(s):
 
 df, duration, h, walking_speed = load_data(settings)
 
-# Derive the equations of motion
-logger.info('Deriving the equations of motion.')
-syms = derive_equations_of_motion(
-    prevent_ground_penetration=False,
-    treadmill=True,
-    hand_of_god=False,
-    stiffness_exp=settings['STIFFNESS_EXP'],
-)
-eom = syms.equations_of_motion
-logger.info('Number of operations in eom: {}'.format(sm.count_ops(eom)))
+def generate_symbolic_eqs(s):
+    # Derive the equations of motion
+    logger.info('Deriving the equations of motion.')
+    syms = derive_equations_of_motion(
+        prevent_ground_penetration=False,
+        treadmill=True,
+        hand_of_god=False,
+        stiffness_exp=s['STIFFNESS_EXP'],
+    )
+    eom = syms.equations_of_motion
+    logger.info('Number of operations in eom: {}'.format(sm.count_ops(eom)))
 
-# Do an overall scale, and then a unit conversion to kN and kNm
-eom = settings['EOM_SCALE']*eom
-for i in range(9):
-    eom[9+i] = settings['GENFORCE_SCALE']*eom[9+i]
+    # Do an overall scale, and then a unit conversion to kN and kNm
+    eom = s['EOM_SCALE']*eom
+    for i in range(9):
+        eom[9+i] = s['GENFORCE_SCALE']*eom[9+i]
+
+
+    @dataclass
+    class ModifiedSymbolics:
+        eom = None
+        grf_eqs = None
+        grf_labels = None
+        grf_syms = None
+        marker_eqs = None
+        marker_labels = None
+        marker_syms = None
+
+
+    msyms = ModifiedSymbolics()
+
+    # Markers are in units meters, so no scaling applied
+    if s['WMAR'] != 0:
+        (msyms.marker_syms, msyms.marker_eqs,
+         msyms.marker_labels) = generate_marker_equations(syms)
+        eom = eom.col_join(sm.Matrix(msyms.marker_eqs))
+
+    # Ground reaction forces are in units Newtons
+    if s['WGRF'] != 0:
+        (msyms.grf_syms, msyms.grf_eqs,
+         msyms.grf_labels) = generate_grf_equations(syms)
+        eom = eom.col_join(msyms.grf_eqs)
+
+    msyms.eom = eom
+
+    return syms, msyms
+
+
+syms, msyms = generate_symbolic_eqs(settings)
 
 # Extract angle measurement data [0%, 50%) and flatten
 ang_meas = df[ANG_GAIT2D_COLS].values[:-1, :].transpose().flatten()
 
-# Markers are in units meters, so no scaling applied
 if settings['WMAR'] != 0:
-    marker_syms, marker_eqs, marker_labels = generate_marker_equations(syms)
-    eom = eom.col_join(sm.Matrix(marker_eqs))
-    mar_meas = df[marker_labels].values[:-1, :].T.flatten()
+    mar_meas = df[msyms.marker_labels].values[:-1, :].T.flatten()
 
-# Ground reaction forces are in units Newtons
 if settings['WGRF'] != 0:
-    grf_syms, grf_eqs, grf_labels = generate_grf_equations(syms)
-    eom = eom.col_join(grf_eqs)
-    grf_meas = df[grf_labels].values[:-1, :].T.flatten()
+    grf_meas = df[msyms.grf_labels].values[:-1, :].T.flatten()
 
 # The generalized coordinates are the hip lateral position qax and veritcal
 # position qay, the trunk angle with respect to vertical qa and the relative
@@ -165,7 +204,7 @@ Tb, Tc, Td, Te, Tf, Tg, v = syms.specifieds
 reg_syms = syms.states + syms.joint_torques
 
 
-def create_known_parameters_map(s):
+def create_known_parameters_map(s, syms):
     # The constants are loaded from a file of realistic geometry, mass,
     # inertia, and foot deformation properties of an adult human.
     par_map = SymbolDict(simulate.load_constants(
@@ -179,7 +218,7 @@ def create_known_parameters_map(s):
     # subject's size.
     if (not s['USE_WINTER_DATA']) and os.path.exists(CALIBDATAPATH):
         scaled_par = body_segment_parameters_from_calibration(CALIBDATAPATH,
-                                                            s['SUBJECT_MASS'])
+                                                              s['SUBJECT_MASS'])
         # TODO : get this to work with SymbolDict: par_map.update(scaled_par)
         for c in syms.constants:
             try:
@@ -261,7 +300,7 @@ def create_instance_constraints(s):
 
     # When tracking markers, simulated marker trajectories must be periodic too
     if s['WMAR'] != 0:
-        for (lx, ly, rx, ry) in itertools.zip_longest(*[iter(marker_syms)]*4):
+        for (lx, ly, rx, ry) in itertools.zip_longest(*[iter(msyms.marker_syms)]*4):
             # group per marker: (ank_lx(t), ank_ly(t), ank_rx(t), ank_ry(t))
             con = (
                 lx.func(0*h) - rx.func(duration),
@@ -273,7 +312,7 @@ def create_instance_constraints(s):
 
     # When tracking ground reaction forces, simulation must be periodic too
     if s['WGRF'] != 0:
-        Frx, Fry, Flx, Fly = grf_syms
+        Frx, Fry, Flx, Fly = msyms.grf_syms
         con = (
             Flx.func(0*h) - Frx.func(duration),
             Frx.func(0*h) - Flx.func(duration),
@@ -341,13 +380,13 @@ def obj(prob, free, obj_show=False):
     # minimize mean marker tracking error
     if settings['WMAR'] != 0:
         # vals -> shape(num_markers*(num_nodes - 1), 1)
-        mar_vals = extract_values(prob, free, *marker_syms, slice=(0, -1))
+        mar_vals = extract_values(prob, free, *msyms.marker_syms, slice=(0, -1))
         f_mar = settings['WMAR']*np.sum((mar_vals - mar_meas)**2)/len(mar_vals)
         f_tot += f_mar
 
     # minimize mean ground reaction force tracking error
     if settings['WGRF'] != 0:
-        grf_vals = extract_values(prob, free, *grf_syms, slice=(0, -1))
+        grf_vals = extract_values(prob, free, *msyms.grf_syms, slice=(0, -1))
         f_grf = settings['WGRF']*np.sum((grf_vals - grf_meas)**2)/len(grf_vals)
         f_tot += f_grf
 
@@ -390,21 +429,21 @@ def obj_grad(prob, free):
         fill_free(prob, grad, reg_grad, *reg_syms, slice=(1, None), add=True)
 
     if settings['WMAR'] != 0:
-        mar_vals = extract_values(prob, free, *marker_syms, slice=(0, -1))
+        mar_vals = extract_values(prob, free, *msyms.marker_syms, slice=(0, -1))
         fill_free(prob, grad,
                   2.0*settings['WMAR']*(mar_vals - mar_meas)/len(mar_vals),
-                  *marker_syms, slice=(0, -1))
+                  *msyms.marker_syms, slice=(0, -1))
 
     if settings['WGRF'] != 0:
-        grf_vals = extract_values(prob, free, *grf_syms, slice=(0, -1))
+        grf_vals = extract_values(prob, free, *msyms.grf_syms, slice=(0, -1))
         fill_free(prob, grad,
                   2.0*settings['WGRF']*(grf_vals - grf_meas)/len(grf_vals),
-                  *grf_syms, slice=(0, -1))
+                  *msyms.grf_syms, slice=(0, -1))
 
     return grad
 
 
-par_map = create_known_parameters_map(settings)
+par_map = create_known_parameters_map(settings, syms)
 
 # Create a belt velocity signal v(t)
 traj_map = {
@@ -415,7 +454,7 @@ logger.info('Creating the opty problem.')
 prob = Problem(
     obj,
     obj_grad,
-    eom,
+    msyms.eom,
     syms.states,
     settings['NUM_NODES'],
     h,
@@ -490,10 +529,10 @@ if __name__ == "__main__":
     if settings['WMAR'] != 0:
         # TODO : The marker positions could be calculated from the generalized
         # coordinates.
-        mar_traj = np.zeros((len(marker_syms), settings['NUM_NODES']))
+        mar_traj = np.zeros((len(msyms.marker_syms), settings['NUM_NODES']))
         initial_guess = np.concatenate((initial_guess, mar_traj))
     if settings['WGRF'] != 0:
-        grf_traj = np.zeros((len(grf_syms), settings['NUM_NODES']))
+        grf_traj = np.zeros((len(msyms.grf_syms), settings['NUM_NODES']))
         initial_guess = np.concatenate((initial_guess, grf_traj))
     initial_guess = initial_guess.flatten()  # make a single row vector
     if settings['SEED']:
@@ -526,7 +565,8 @@ if __name__ == "__main__":
                         grf_meas=grf_meas_full)
 
     if settings['WMAR'] != 0:
-        plot_marker_comparison(marker_syms, marker_labels, df, prob, solution)
+        plot_marker_comparison(msyms.marker_syms, msyms.marker_labels, df,
+                               prob, solution)
 
     plt.show()
 
