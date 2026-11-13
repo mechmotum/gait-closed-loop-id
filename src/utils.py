@@ -1,6 +1,8 @@
 import os
 import logging
 import itertools
+import platform
+import pickle
 from datetime import datetime
 from warnings import simplefilter
 from dataclasses import dataclass
@@ -164,6 +166,36 @@ def print_settings(s):
     )
     print('IPOPT linear solver: {}'.format(s['LINEAR_SOLVER']))
     print('*'*79)
+
+
+def save_result(settings, ang_sol_full, tor_sol_full, grf_sol_full, solution,
+                h, duration, walking_speed):
+    """Saves results to result.pkl in current directory."""
+    result = settings.copy()
+    result.update({
+        'ang_sol_full': ang_sol_full,
+        'tor_sol_full': tor_sol_full,
+        'grf_sol_full': grf_sol_full,
+        'solution': solution,
+        'h': h,
+        'duration': duration,
+        'walking_speed': walking_speed,
+    })
+    with open('result.pkl', 'wb') as f:
+        # TODO : Generate a unique filename based on the settings.
+        pickle.dump(result, f)
+
+
+def set_linear_solver(settings, prob):
+    """Sets the linear solver option on Problem to the HSL solver given the
+    operating system."""
+    if settings['LINEAR_SOLVER'].startswith('ma'):
+        # TODO : Load correct shared lib on Windows/Darwin
+        if platform.system() == 'Linux':
+            prob.add_option('hsllib', 'libcoinhsl.so')
+        prob.add_option('linear_solver', settings['LINEAR_SOLVER'])
+        if settings['LINEAR_SOLVER'] == 'ma57':
+            prob.add_option('ma57_pivot_order', 2)
 
 
 def solve_gait(prob, v, speeds, initial_guess):
@@ -384,6 +416,25 @@ def full_gait_from_half(*halves):
         return res[0]
     else:
         return tuple(res)
+
+
+def build_full_gait_cycles(settings, syms, prob, solution, df, duration, h):
+    # extract angles and torques (simulation and measured)
+    ang_sol, tor_sol, grf_sol = extract_solution(syms, prob, solution)
+    ang_meas = df[ANG_GAIT2D_COLS].values[:-1, :]  # shape(N-1, 6)
+    tor_meas = df[TOR_GAIT2D_COLS].values[:-1, :]  # shape(N-1, 6)
+    grf_meas = df[GRF_GAIT2D_COLS].values[:-1, :]  # shape(N-1, 4)
+
+    # construct a right side full gait cycle trajectory
+    plot_time = np.linspace(0.0, duration - h, num=2*settings['NUM_NODES'] - 1)
+    ang_sol_full, tor_sol_full, grf_sol_full = full_gait_from_half(
+        ang_sol, tor_sol, grf_sol)
+    ang_meas_full, tor_meas_full, grf_meas_full = full_gait_from_half(
+        ang_meas, tor_meas, grf_meas)
+
+    return (ang_meas, tor_meas, grf_meas, plot_time, ang_sol_full,
+            tor_sol_full, grf_sol_full, ang_meas_full, tor_meas_full,
+            grf_meas_full)
 
 
 def tile_standing(standing_sol, num_nodes, num_angles, num_states):

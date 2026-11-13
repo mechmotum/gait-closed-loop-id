@@ -7,8 +7,6 @@ known feedback controller to generate synthetic data for testing our controller
 identification method.
 """
 from ctypes.util import find_library
-import platform
-import pickle
 
 from opty import Problem
 from pygait2d.segment import time_symbol
@@ -16,27 +14,25 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 from utils import (
-    ANG_GAIT2D_COLS,
-    GRF_GAIT2D_COLS,
-    TOR_GAIT2D_COLS,
     animate,
+    build_full_gait_cycles,
     create_bounds,
     create_instance_constraints,
     create_known_parameters_map,
     extract_flattened_meas_arrays,
-    extract_solution,
     extract_values,
     extract_values_diff,
     fill_free,
-    full_gait_from_half,
+    gen_initial_guess_from_standing,
     generate_symbolic_eqs,
     load_measurement_data,
     logger,
     plot_joint_comparison,
     plot_marker_comparison,
     print_settings,
+    save_result,
+    set_linear_solver,
     solve_gait,
-    gen_initial_guess_from_standing,
 )
 
 # Primary settings (capitalize)
@@ -197,24 +193,8 @@ def obj_grad(prob, free):
     return grad
 
 
-if __name__ == "__main__":
-
-    print_settings(settings)
-
-    df, duration, h, walking_speed = load_measurement_data(settings)
-    syms, msyms = generate_symbolic_eqs(settings)
-    reg_syms = syms.states + syms.joint_torques
-    ang_meas, mar_meas, grf_meas = extract_flattened_meas_arrays(settings, df,
-                                                              msyms)
-    par_map = create_known_parameters_map(settings, syms)
-    v = syms.specifieds[-1]
-    traj_map = {
-        v: df['Speed'].values,  # shape(settings['NUM_NODES'],)
-    }
-    instance_constraints = create_instance_constraints(settings, syms, msyms,
-                                                       duration, h)
-    bounds = create_bounds(syms)
-
+def setup_opty_problem(settings, obj, obj_grad, syms, msyms, h, par_map,
+                       traj_map, instance_constraints, bounds, time_symbol):
     logger.info('Creating the opty problem.')
     prob = Problem(
         obj,
@@ -241,19 +221,36 @@ if __name__ == "__main__":
         prob.lower_bound[0] = 0.0
         prob.upper_bound[0] = 0.0
 
-    if settings['LINEAR_SOLVER'].startswith('ma'):
-        # TODO : Load correct shared lib on Windows/Darwin
-        if platform.system() == 'Linux':
-            prob.add_option('hsllib', 'libcoinhsl.so')
-        prob.add_option('linear_solver', settings['LINEAR_SOLVER'])
-        if settings['LINEAR_SOLVER'] == 'ma57':
-            prob.add_option('ma57_pivot_order', 2)
-
+    set_linear_solver(settings, prob)
     prob.add_option('max_iter', 3000)
     prob.add_option('tol', 1e-3)
     prob.add_option('constr_viol_tol', 1e-4)
     prob.add_option('print_level', 0)
     #prob.add_option('derivative_test', 'first-order')
+    return prob
+
+
+if __name__ == "__main__":
+
+    print_settings(settings)
+
+    df, duration, h, walking_speed = load_measurement_data(settings)
+    syms, msyms = generate_symbolic_eqs(settings)
+    reg_syms = syms.states + syms.joint_torques
+    ang_meas, mar_meas, grf_meas = extract_flattened_meas_arrays(
+        settings, df, msyms)
+    par_map = create_known_parameters_map(settings, syms)
+    v = syms.specifieds[-1]
+    traj_map = {
+        v: df['Speed'].values,  # shape(settings['NUM_NODES'],)
+    }
+    instance_constraints = create_instance_constraints(settings, syms, msyms,
+                                                       duration, h)
+    bounds = create_bounds(syms)
+
+    prob = setup_opty_problem(settings, obj, obj_grad, syms, msyms, h, par_map,
+                              traj_map, instance_constraints, bounds,
+                              time_symbol)
 
     initial_guess = gen_initial_guess_from_standing(settings, syms, msyms)
 
@@ -263,18 +260,11 @@ if __name__ == "__main__":
         solution = solve_gait(prob, v, speeds, initial_guess)
         initial_guess = solution  # use as guess for the next problem
 
-    # extract angles and torques (simulation and measured)
-    ang_sol, tor_sol, grf_sol = extract_solution(syms, prob, solution)
-    ang_meas = df[ANG_GAIT2D_COLS].values[:-1, :]  # shape(N-1, 6)
-    tor_meas = df[TOR_GAIT2D_COLS].values[:-1, :]  # shape(N-1, 6)
-    grf_meas = df[GRF_GAIT2D_COLS].values[:-1, :]  # shape(N-1, 4)
-
-    # construct a right side full gait cycle trajectory
-    plot_time = np.linspace(0.0, duration - h, num=2*settings['NUM_NODES'] - 1)
-    ang_sol_full, tor_sol_full, grf_sol_full = full_gait_from_half(
-        ang_sol, tor_sol, grf_sol)
-    ang_meas_full, tor_meas_full, grf_meas_full = full_gait_from_half(
-        ang_meas, tor_meas, grf_meas)
+    # TODO : This overwrites the ang_meas and grf_meas variables above (those
+    # are flattened).
+    (ang_meas, tor_meas, grf_meas, plot_time, ang_sol_full, tor_sol_full,
+     grf_sol_full, ang_meas_full, tor_meas_full, grf_meas_full) = \
+        build_full_gait_cycles(settings, syms, prob, solution, df, duration, h)
 
     # Generate plots and animations
     plot_joint_comparison(plot_time, ang_sol_full, tor_sol_full, ang_meas_full,
@@ -288,19 +278,8 @@ if __name__ == "__main__":
     plt.show()
 
     if settings['SAVE_RESULT']:
-        result = settings.copy()
-        result.update({
-            'ang_sol_full': ang_sol_full,
-            'tor_sol_full': tor_sol_full,
-            'grf_sol_full': grf_sol_full,
-            'solution': solution,
-            'h': h,
-            'duration': duration,
-            'walking_speed': walking_speed,
-        })
-        with open('result.pkl', 'wb') as f:
-            # TODO : Generate a unique filename based on the settings.
-            pickle.dump(result, f)
+        save_result(settings, ang_sol_full, tor_sol_full, grf_sol_full,
+                    solution, h, duration, walking_speed)
 
     if settings['MAKE_ANIMATION']:
         animation = animate(syms, prob, solution, traj_map[v], grf_meas)
