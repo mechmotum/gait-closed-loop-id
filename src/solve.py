@@ -144,7 +144,22 @@ def obj(prob, free, obj_show=False):
 
 
 def obj_grad(prob, free):
+    """Returns the gradient of the objective function with respect to the free
+    optimization variables.
 
+    Parameters
+    ==========
+    prob : opty.Problem
+        Instantiated optimal control problem.
+    free : ndarray, shape(num_free,)
+        Values of the free optimization variables.
+
+    Returns
+    =======
+    grad : ndarray, shape(free,)
+        Gradient of the objective.
+
+    """
     grad = np.zeros_like(free)
 
     tor_vals = extract_values(prob, free, *syms.joint_torques, slice=(0, -1))
@@ -167,7 +182,8 @@ def obj_grad(prob, free):
         fill_free(prob, grad, reg_grad, *reg_syms, slice=(1, None), add=True)
 
     if settings['WMAR'] != 0:
-        mar_vals = extract_values(prob, free, *msyms.marker_syms, slice=(0, -1))
+        mar_vals = extract_values(prob, free, *msyms.marker_syms,
+                                  slice=(0, -1))
         fill_free(prob, grad,
                   2.0*settings['WMAR']*(mar_vals - mar_meas)/len(mar_vals),
                   *msyms.marker_syms, slice=(0, -1))
