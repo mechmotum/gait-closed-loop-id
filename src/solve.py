@@ -7,8 +7,6 @@ known feedback controller to generate synthetic data for testing our controller
 identification method.
 """
 from ctypes.util import find_library
-from datetime import datetime
-import os
 import platform
 import pickle
 
@@ -17,10 +15,8 @@ from pygait2d.segment import time_symbol
 import matplotlib.pyplot as plt
 import numpy as np
 
-from solve_standing import find_standing_state
 from utils import (
     ANG_GAIT2D_COLS,
-    DATADIR,
     GRF_GAIT2D_COLS,
     TOR_GAIT2D_COLS,
     animate,
@@ -39,7 +35,8 @@ from utils import (
     plot_joint_comparison,
     plot_marker_comparison,
     print_settings,
-    tile_standing,
+    solve_gait,
+    gen_initial_guess_from_standing,
 )
 
 # Primary settings (capitalize)
@@ -186,24 +183,13 @@ def obj_grad(prob, free):
 
 df, duration, h, walking_speed = load_measurement_data(settings)
 syms, msyms = generate_symbolic_eqs(settings)
-ang_meas, mar_meas, grf_meas = extract_measurement_arrays(settings, df, msyms)
-
-# The generalized coordinates are the hip lateral position qax and veritcal
-# position qay, the trunk angle with respect to vertical qa and the relative
-# joint angles:
-#
-# - right: hip (b), knee (c), ankle (d)
-# - left: hip (e), knee (f), ankle (g)
-#
-# Each joint has a joint torque acting between the adjacent bodies.
-qax, qay, qa, qb, qc, qd, qe, qf, qg = syms.coordinates
-uax, uay, ua, ub, uc, ud, ue, uf, ug = syms.speeds
-Tb, Tc, Td, Te, Tf, Tg, v = syms.specifieds
 reg_syms = syms.states + syms.joint_torques
+ang_meas, mar_meas, grf_meas = extract_measurement_arrays(settings, df, msyms)
 
 par_map = create_known_parameters_map(settings, syms)
 
 # Create a belt velocity signal v(t)
+v = syms.specifieds[-1]
 traj_map = {
     v: df['Speed'].values,  # shape(settings['NUM_NODES'],)
 }
@@ -252,60 +238,16 @@ prob.add_option('constr_viol_tol', 1e-4)
 prob.add_option('print_level', 0)
 #prob.add_option('derivative_test', 'first-order')
 
-
-# Solve the gait optimization problem for given belt speed
-def solve_gait(speeds, initial_guess):
-
-    # change the belt speed signal
-    traj_map[v] = speeds
-
-    # solve
-    logger.info(datetime.now().strftime("%H:%M:%S") +
-                f" solving for {np.mean(speeds):.3f} m/s")
-    solution, info = prob.solve(initial_guess)
-    # we accept solve_succeeded (0) and solved_to_acceptable_level (1)
-    if info['status'] < 0:
-        logger.info("IPOPT was not successful.")
-
-    # show the final objective function value and its contributions
-    obj(prob, solution, obj_show=True)
-
-    return solution
-
-
 if __name__ == "__main__":
 
     print_settings(settings)
 
-    # make an initial guess from the standing solution
-    logger.info('Making an initial guess.')
-    fname = os.path.join(DATADIR, 'standing.csv')
-    if not os.path.exists(fname):
-        logger.info('Solving standing problem.')
-        standing_sol = find_standing_state()
-    else:
-        standing_sol = np.loadtxt(fname)
-
-    initial_guess = tile_standing(standing_sol, settings['NUM_NODES'],
-                                  len(syms.joint_angles), len(syms.states))
-    if settings['WMAR'] != 0:
-        # TODO : The marker positions could be calculated from the generalized
-        # coordinates.
-        mar_traj = np.zeros((len(msyms.marker_syms), settings['NUM_NODES']))
-        initial_guess = np.concatenate((initial_guess, mar_traj))
-    if settings['WGRF'] != 0:
-        grf_traj = np.zeros((len(msyms.grf_syms), settings['NUM_NODES']))
-        initial_guess = np.concatenate((initial_guess, grf_traj))
-    initial_guess = initial_guess.flatten()  # make a single row vector
-    if settings['SEED']:
-        np.random.seed(settings['SEED'])  # this makes the result reproducible
-    initial_guess = (initial_guess +
-                    0.01*np.random.random_sample(len(initial_guess)))
+    initial_guess = gen_initial_guess_from_standing(settings, syms, msyms)
 
     # solve for a series of increasing speeds, ending at the required speed
     for speed_scale in np.linspace(0.1, 1.0, num=10):
         speeds = speed_scale*df['Speed'].values
-        solution = solve_gait(speeds, initial_guess)
+        solution = solve_gait(prob, v, speeds, initial_guess)
         initial_guess = solution  # use as guess for the next problem
 
     # extract angles and torques (simulation and measured)

@@ -1,6 +1,7 @@
 import os
 import logging
 import itertools
+from datetime import datetime
 from warnings import simplefilter
 from dataclasses import dataclass
 
@@ -164,6 +165,40 @@ def print_settings(s):
     print('IPOPT linear solver: {}'.format(s['LINEAR_SOLVER']))
     print('*'*79)
 
+
+def solve_gait(prob, v, speeds, initial_guess):
+    """Update the speed array inside the problem and solve with the provided
+    initial guess.
+
+    Parameters
+    ==========
+    speeds : ndarray
+        New speed values.
+    initial_guess : ndarray
+        Guess for the problem.
+
+    Returns
+    =======
+    solution : ndarray
+        Solution returned from the problem.
+
+    """
+
+    # change the belt speed signal
+    prob.collocator.known_trajectory_map[v] = speeds
+
+    # solve
+    logger.info(datetime.now().strftime("%H:%M:%S") +
+                f" solving for {np.mean(speeds):.3f} m/s")
+    solution, info = prob.solve(initial_guess)
+    # we accept solve_succeeded (0) and solved_to_acceptable_level (1)
+    if info['status'] < 0:
+        logger.info("IPOPT was not successful.")
+
+    # show the final objective function value and its contributions
+    prob.obj(prob, solution, obj_show=True)
+
+    return solution
 
 def create_bounds(syms):
     """Returns bounds for a half gait cycle.
@@ -374,6 +409,44 @@ def tile_standing(standing_sol, num_nodes, num_angles, num_states):
     tor_traj = np.zeros((num_angles, num_nodes))
     # complete trajectory
     return np.concatenate((state_traj, tor_traj))
+
+
+def gen_initial_guess_from_standing(s, syms, msyms):
+    """Make an initial guess from the standing solution.
+    Parameters
+    ==========
+    s : dictionary
+        Settings dictionary.
+    syms : pygait2d.derive.Symbolics
+    msyms : ModifiedSymbolics
+    """
+    logger.info('Making an initial guess.')
+    fname = os.path.join(DATADIR, 'standing.csv')
+    if not os.path.exists(fname):
+        logger.info('Solving standing problem.')
+        # TODO : possible circular import
+        from solve_standing import find_standing_state
+        standing_sol = find_standing_state()
+    else:
+        standing_sol = np.loadtxt(fname)
+
+    initial_guess = tile_standing(standing_sol, s['NUM_NODES'],
+                                len(syms.joint_angles), len(syms.states))
+
+    if s['WMAR'] != 0:
+        # TODO : The marker positions could be calculated from the generalized
+        # coordinates.
+        mar_traj = np.zeros((len(msyms.marker_syms), s['NUM_NODES']))
+        initial_guess = np.concatenate((initial_guess, mar_traj))
+    if s['WGRF'] != 0:
+        grf_traj = np.zeros((len(msyms.grf_syms), s['NUM_NODES']))
+        initial_guess = np.concatenate((initial_guess, grf_traj))
+    initial_guess = initial_guess.flatten()  # make a single row vector
+    if s['SEED']:
+        np.random.seed(s['SEED'])  # this makes the result reproducible
+    initial_guess = (initial_guess +
+                    0.01*np.random.random_sample(len(initial_guess)))
+    return initial_guess
 
 
 def fill_free(problem, free, values, *variables, slice=(None, None),
