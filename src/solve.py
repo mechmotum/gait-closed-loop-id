@@ -9,49 +9,36 @@ identification method.
 from ctypes.util import find_library
 from datetime import datetime
 import itertools
-import logging
 import os
 import platform
 import pickle
-from dataclasses import dataclass
 
 from opty import Problem
-from pygait2d import simulate
-from pygait2d.derive import derive_equations_of_motion
 from pygait2d.segment import time_symbol
 import matplotlib.pyplot as plt
 import numpy as np
-import sympy as sm
 
 from solve_standing import find_standing_state
 from utils import (
     ANG_GAIT2D_COLS,
-    CALIBDATAPATH,
     DATADIR,
     GRF_GAIT2D_COLS,
-    SymbolDict,
     TOR_GAIT2D_COLS,
     animate,
-    body_segment_parameters_from_calibration,
+    extract_measurement_arrays,
     extract_solution,
     extract_values,
     extract_values_diff,
     fill_free,
     full_gait_from_half,
-    generate_grf_equations,
-    generate_marker_equations,
+    generate_symbolic_eqs,
     load_measurement_data,
+    logger,
     plot_joint_comparison,
     plot_marker_comparison,
     print_settings,
     tile_standing,
-)
-
-logger = logging.getLogger(__name__)
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s %(levelname)s %(module)s - %(funcName)s: %(message)s',
-    datefmt='%H:%M:%S',
+    create_known_parameters_map,
 )
 
 # Primary settings (capitalize)
@@ -75,96 +62,6 @@ settings = {
     "WREG": 1e-6,  # weight of mean squared time derivatives
     "WTOR": 1000.0,  # weight of the mean squared torque (in kNm) objective
 }
-
-
-def generate_symbolic_eqs(s):
-    # Derive the equations of motion
-    logger.info('Deriving the equations of motion.')
-    syms = derive_equations_of_motion(
-        prevent_ground_penetration=False,
-        treadmill=True,
-        hand_of_god=False,
-        stiffness_exp=s['STIFFNESS_EXP'],
-    )
-    eom = syms.equations_of_motion
-    logger.info('Number of operations in eom: {}'.format(sm.count_ops(eom)))
-
-    # Do an overall scale, and then a unit conversion to kN and kNm
-    eom = s['EOM_SCALE']*eom
-    for i in range(9):
-        eom[9+i] = s['GENFORCE_SCALE']*eom[9+i]
-
-
-    @dataclass
-    class ModifiedSymbolics:
-        eom = None
-        grf_eqs = None
-        grf_labels = None
-        grf_syms = None
-        marker_eqs = None
-        marker_labels = None
-        marker_syms = None
-
-
-    msyms = ModifiedSymbolics()
-
-    # Markers are in units meters, so no scaling applied
-    if s['WMAR'] != 0:
-        (msyms.marker_syms, msyms.marker_eqs,
-         msyms.marker_labels) = generate_marker_equations(syms)
-        eom = eom.col_join(sm.Matrix(msyms.marker_eqs))
-
-    # Ground reaction forces are in units Newtons
-    if s['WGRF'] != 0:
-        (msyms.grf_syms, msyms.grf_eqs,
-         msyms.grf_labels) = generate_grf_equations(syms)
-        eom = eom.col_join(msyms.grf_eqs)
-
-    msyms.eom = eom
-
-    return syms, msyms
-
-
-def extract_measurements(s, msyms):
-    # Extract angle measurement data [0%, 50%) and flatten
-    ang_meas = df[ANG_GAIT2D_COLS].values[:-1, :].transpose().flatten()
-
-    if settings['WMAR'] != 0:
-        mar_meas = df[msyms.marker_labels].values[:-1, :].T.flatten()
-    else:
-        mar_meas = None
-
-    if settings['WGRF'] != 0:
-        grf_meas = df[msyms.grf_labels].values[:-1, :].T.flatten()
-    else:
-        grf_meas = None
-
-    return ang_meas, mar_meas, grf_meas
-
-
-def create_known_parameters_map(s, syms):
-    # The constants are loaded from a file of realistic geometry, mass,
-    # inertia, and foot deformation properties of an adult human.
-    par_map = SymbolDict(simulate.load_constants(
-        syms.constants, os.path.join(DATADIR, 'example_constants.yml')))
-    if s['STIFFNESS_EXP'] == 2:
-        # Change stiffness value to give a 10mm static compression for a 1 kN
-        # load with a quadratic force model.
-        par_map['kc'] = 1e7
-
-    # If there is calibration pose data, update the constants based on that
-    # subject's size.
-    if (not s['USE_WINTER_DATA']) and os.path.exists(CALIBDATAPATH):
-        scaled_par = body_segment_parameters_from_calibration(CALIBDATAPATH,
-                                                              s['SUBJECT_MASS'])
-        # TODO : get this to work with SymbolDict: par_map.update(scaled_par)
-        for c in syms.constants:
-            try:
-                par_map[c] = scaled_par[c.name]
-            except KeyError:
-                pass
-
-    return par_map
 
 
 def create_bounds(syms):
@@ -407,7 +304,7 @@ def obj_grad(prob, free):
 
 df, duration, h, walking_speed = load_measurement_data(settings)
 syms, msyms = generate_symbolic_eqs(settings)
-ang_meas, mar_meas, grf_meas = extract_measurements(settings, msyms)
+ang_meas, mar_meas, grf_meas = extract_measurement_arrays(settings, df, msyms)
 
 # The generalized coordinates are the hip lateral position qax and veritcal
 # position qay, the trunk angle with respect to vertical qa and the relative

@@ -1,11 +1,15 @@
 import os
+import logging
 from warnings import simplefilter
+from dataclasses import dataclass
 
 import numpy as np
 import pandas as pd
 import sympy as sm
 import matplotlib.pyplot as plt
 from scipy.interpolate import interp1d
+from pygait2d import simulate
+from pygait2d.derive import derive_equations_of_motion
 from pygait2d.segment import time_varying
 from symmeplot.matplotlib import Scene3D
 from matplotlib.animation import FuncAnimation
@@ -14,6 +18,13 @@ from matplotlib.animation import FuncAnimation
 # disabling it. See:
 # https://stackoverflow.com/questions/68292862/performancewarning-dataframe-is-highly-fragmented-this-is-usually-the-result-o
 simplefilter(action="ignore", category=pd.errors.PerformanceWarning)
+
+logger = logging.getLogger(__name__)
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s %(levelname)s %(module)s - %(funcName)s: %(message)s',
+    datefmt='%H:%M:%S',
+)
 
 GAITFILE = '020-longitudinal-perturbation-gait-cycles.csv'
 CALIBFILE = '020-calibration-pose.csv'
@@ -322,6 +333,44 @@ class SymbolDict(dict):
         dict.__setitem__(self, key, val)
 
 
+def create_known_parameters_map(s, syms):
+    """
+    Parameters
+    ==========
+    s : dictionary
+        Settings dictionary.
+    syms : pygait2d.derive.Symbolics
+
+    Returns
+    =======
+    par_map : dictionary
+        Maps all constant parameter symbols to floats.
+
+    """
+    # The constants are loaded from a file of realistic geometry, mass,
+    # inertia, and foot deformation properties of an adult human.
+    par_map = SymbolDict(simulate.load_constants(
+        syms.constants, os.path.join(DATADIR, 'example_constants.yml')))
+    if s['STIFFNESS_EXP'] == 2:
+        # Change stiffness value to give a 10mm static compression for a 1 kN
+        # load with a quadratic force model.
+        par_map['kc'] = 1e7
+
+    # If there is calibration pose data, update the constants based on that
+    # subject's size.
+    if (not s['USE_WINTER_DATA']) and os.path.exists(CALIBDATAPATH):
+        scaled_par = body_segment_parameters_from_calibration(
+            CALIBDATAPATH, s['SUBJECT_MASS'])
+        # TODO : get this to work with SymbolDict: par_map.update(scaled_par)
+        for c in syms.constants:
+            try:
+                par_map[c] = scaled_par[c.name]
+            except KeyError:
+                pass
+
+    return par_map
+
+
 def generate_planar_grf_func(symbolics):
     """Returns a function that evaluates the right and left ground reaction
     forces given the states, inputs, and parameters.
@@ -610,6 +659,70 @@ def get_sym_by_name(iterable, *sym_strs):
             return tuple(syms)
     else:
         raise ValueError('One or more sym_strs not in iterable.')
+
+
+def generate_symbolic_eqs(s):
+    """Returns the symbolic equations needed for opty.
+
+    Parameters
+    ==========
+    s : dictionary
+        Settings dictionary.
+
+    Returns
+    =======
+    syms : pygait2d.derive.Symbolics
+        DataClass containing the Gait2D symbolic model.
+    msyms : ModifiedSymbolics
+        DataClass containing the symbolic equations prepared for opty along
+        with marker and GRF labels and symbols.
+
+    """
+    # Derive the equations of motion
+    logger.info('Deriving the equations of motion.')
+    syms = derive_equations_of_motion(
+        prevent_ground_penetration=False,
+        treadmill=True,
+        hand_of_god=False,
+        stiffness_exp=s['STIFFNESS_EXP'],
+    )
+    eom = syms.equations_of_motion
+    logger.info('Number of operations in eom: {}'.format(sm.count_ops(eom)))
+
+    # Do an overall scale, and then a unit conversion to kN and kNm
+    eom = s['EOM_SCALE']*eom
+    for i in range(9):
+        eom[9+i] = s['GENFORCE_SCALE']*eom[9+i]
+
+
+    @dataclass
+    class ModifiedSymbolics:
+        eom = None
+        grf_eqs = None
+        grf_labels = None
+        grf_syms = None
+        marker_eqs = None
+        marker_labels = None
+        marker_syms = None
+
+
+    msyms = ModifiedSymbolics()
+
+    # Markers are in units meters, so no scaling applied
+    if s['WMAR'] != 0:
+        (msyms.marker_syms, msyms.marker_eqs,
+         msyms.marker_labels) = generate_marker_equations(syms)
+        eom = eom.col_join(sm.Matrix(msyms.marker_eqs))
+
+    # Ground reaction forces are in units Newtons
+    if s['WGRF'] != 0:
+        (msyms.grf_syms, msyms.grf_eqs,
+         msyms.grf_labels) = generate_grf_equations(syms)
+        eom = eom.col_join(msyms.grf_eqs)
+
+    msyms.eom = eom
+
+    return syms, msyms
 
 
 def generate_marker_equations(symbolics):
@@ -1217,6 +1330,44 @@ def load_measurement_data(s):
     walking_speed = df['Speed'].mean()
 
     return df, duration, h, walking_speed
+
+
+def extract_measurement_arrays(s, df, msyms):
+    """Extracts arrays of measurement data with columns in the order necessary
+    to compare to the simulation.
+
+    Parameters
+    ==========
+    s : dictionary
+        Settings dictionary.
+    df : DataFrame
+        Master data frame of all measurement data.
+    msyms : DataClass
+        Holds essential equations along with column label orders.
+
+    Returns
+    =======
+    ang_meas : ndarray
+    mar_meas : ndarray
+    grf_meas : ndarray
+
+    """
+    # Extract angle measurement data [0%, 50%) and flatten
+    ang_meas = df[ANG_GAIT2D_COLS].values[:-1, :].transpose().flatten()
+
+    # TODO : The marker and grf labels could probably be sources from the
+    # canonical global variables, like above.
+    if s['WMAR'] != 0:
+        mar_meas = df[msyms.marker_labels].values[:-1, :].T.flatten()
+    else:
+        mar_meas = None
+
+    if s['WGRF'] != 0:
+        grf_meas = df[msyms.grf_labels].values[:-1, :].T.flatten()
+    else:
+        grf_meas = None
+
+    return ang_meas, mar_meas, grf_meas
 
 
 def plot_joint_comparison(t, angles, torques, angles_meas, torques_meas=None,
