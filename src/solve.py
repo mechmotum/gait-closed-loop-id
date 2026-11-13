@@ -8,7 +8,6 @@ identification method.
 """
 from ctypes.util import find_library
 from datetime import datetime
-import itertools
 import os
 import platform
 import pickle
@@ -25,6 +24,9 @@ from utils import (
     GRF_GAIT2D_COLS,
     TOR_GAIT2D_COLS,
     animate,
+    create_bounds,
+    create_instance_constraints,
+    create_known_parameters_map,
     extract_measurement_arrays,
     extract_solution,
     extract_values,
@@ -38,7 +40,6 @@ from utils import (
     plot_marker_comparison,
     print_settings,
     tile_standing,
-    create_known_parameters_map,
 )
 
 # Primary settings (capitalize)
@@ -62,125 +63,6 @@ settings = {
     "WREG": 1e-6,  # weight of mean squared time derivatives
     "WTOR": 1000.0,  # weight of the mean squared torque (in kNm) objective
 }
-
-
-def create_bounds(syms):
-    # The generalized coordinates are the hip lateral position qax and veritcal
-    # position qay, the trunk angle with respect to vertical qa and the
-    # relative joint angles:
-    #
-    # - right: hip (b), knee (c), ankle (d)
-    # - left: hip (e), knee (f), ankle (g)
-    #
-    # Each joint has a joint torque acting between the adjacent bodies.
-    qax, qay, qa, qb, qc, qd, qe, qf, qg = syms.coordinates
-    uax, uay, ua, ub, uc, ud, ue, uf, ug = syms.speeds
-    Tb, Tc, Td, Te, Tf, Tg, v = syms.specifieds
-
-    # Bound all the states to human realizable ranges.
-    #
-    # - The trunk should stay generally upright and be at a possible walking
-    # height.
-    # - Only let the hip, knee, and ankle flex and extend to realistic limits.
-    # - Put a maximum on the peak torque values.
-    bounds = {
-        qax: (-1.0, 1.0),
-        qay: (0.5, 1.5),
-        qa: np.deg2rad((-60.0, 60.0)),
-        uax: (-1.0, 1.0),
-        uay: (-1.0, 1.0),
-    }
-    # hip
-    bounds.update({k: (-np.deg2rad(60.0), np.deg2rad(60.0))
-                for k in [qb, qe]})
-    # knee
-    bounds.update({k: (-np.deg2rad(90.0), 0.0)
-                for k in [qc, qf]})
-    # foot
-    bounds.update({k: (-np.deg2rad(40.0), np.deg2rad(40.0))
-                for k in [qd, qg]})
-    # all rotational speeds
-    bounds.update({k: (-np.deg2rad(400.0), np.deg2rad(400.0))
-                for k in [ua, ub, uc, ud, ue, uf, ug]})
-    # all joint torques
-    bounds.update({k: (-600.0, 600.0)
-                for k in [Tb, Tc, Td, Te, Tf, Tg]})
-
-    # TODO : Add bounds for marker trajectories and ground reaction forces.
-
-    return bounds
-
-
-def create_instance_constraints(s, syms, msyms, duration):
-    # The generalized coordinates are the hip lateral position qax and veritcal
-    # position qay, the trunk angle with respect to vertical qa and the
-    # relative joint angles:
-    #
-    # - right: hip (b), knee (c), ankle (d)
-    # - left: hip (e), knee (f), ankle (g)
-    #
-    # Each joint has a joint torque acting between the adjacent bodies.
-    qax, qay, qa, qb, qc, qd, qe, qf, qg = syms.coordinates
-    uax, uay, ua, ub, uc, ud, ue, uf, ug = syms.speeds
-    Tb, Tc, Td, Te, Tf, Tg, v = syms.specifieds
-
-    # To enforce a half period, set the right leg's angles at the initial time
-    # to be equal to the left leg's angles at the final time and vice versa.
-    # The same goes for the joint angular rates.
-    instance_constraints = (
-        qax.func(0*h) - qax.func(duration),
-        qay.func(0*h) - qay.func(duration),
-        qa.func(0*h) - qa.func(duration),
-        qb.func(0*h) - qe.func(duration),
-        qc.func(0*h) - qf.func(duration),
-        qd.func(0*h) - qg.func(duration),
-        qe.func(0*h) - qb.func(duration),
-        qf.func(0*h) - qc.func(duration),
-        qg.func(0*h) - qd.func(duration),
-        uax.func(0*h) - uax.func(duration),
-        uay.func(0*h) - uay.func(duration),
-        ua.func(0*h) - ua.func(duration),
-        ub.func(0*h) - ue.func(duration),
-        uc.func(0*h) - uf.func(duration),
-        ud.func(0*h) - ug.func(duration),
-        ue.func(0*h) - ub.func(duration),
-        uf.func(0*h) - uc.func(duration),
-        ug.func(0*h) - ud.func(duration),
-        # torques must also be periodic, because torques at t=0 are never used
-        # with Backward Euler, and would otherwise become zero due to the cost
-        # function
-        Tb.func(0*h) - Te.func(duration),
-        Tc.func(0*h) - Tf.func(duration),
-        Td.func(0*h) - Tg.func(duration),
-        Te.func(0*h) - Tb.func(duration),
-        Tf.func(0*h) - Tc.func(duration),
-        Tg.func(0*h) - Td.func(duration),
-    )
-
-    # When tracking markers, simulated marker trajectories must be periodic too
-    if s['WMAR'] != 0:
-        for (lx, ly, rx, ry) in itertools.zip_longest(*[iter(msyms.marker_syms)]*4):
-            # group per marker: (ank_lx(t), ank_ly(t), ank_rx(t), ank_ry(t))
-            con = (
-                lx.func(0*h) - rx.func(duration),
-                rx.func(0*h) - lx.func(duration),
-                ly.func(0*h) - ry.func(duration),
-                ry.func(0*h) - ly.func(duration),
-            )
-            instance_constraints += con
-
-    # When tracking ground reaction forces, simulation must be periodic too
-    if s['WGRF'] != 0:
-        Frx, Fry, Flx, Fly = msyms.grf_syms
-        con = (
-            Flx.func(0*h) - Frx.func(duration),
-            Frx.func(0*h) - Flx.func(duration),
-            Fly.func(0*h) - Fry.func(duration),
-            Fry.func(0*h) - Fly.func(duration),
-        )
-        instance_constraints += con
-
-    return instance_constraints
 
 
 def obj(prob, free, obj_show=False):
@@ -327,7 +209,7 @@ traj_map = {
 }
 
 instance_constraints = create_instance_constraints(settings, syms, msyms,
-                                                   duration)
+                                                   duration, h)
 bounds = create_bounds(syms)
 
 logger.info('Creating the opty problem.')
