@@ -1556,7 +1556,7 @@ def load_measurement_data(s):
     return df, duration, h, walking_speed
 
 
-def extract_measurement_arrays(s, df, msyms):
+def extract_flattened_meas_arrays(s, df, msyms):
     """Extracts arrays of measurement data with columns in the order necessary
     to compare to the simulation.
 

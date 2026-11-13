@@ -23,7 +23,7 @@ from utils import (
     create_bounds,
     create_instance_constraints,
     create_known_parameters_map,
-    extract_measurement_arrays,
+    extract_flattened_meas_arrays,
     extract_solution,
     extract_values,
     extract_values_diff,
@@ -181,66 +181,63 @@ def obj_grad(prob, free):
     return grad
 
 
-df, duration, h, walking_speed = load_measurement_data(settings)
-syms, msyms = generate_symbolic_eqs(settings)
-reg_syms = syms.states + syms.joint_torques
-ang_meas, mar_meas, grf_meas = extract_measurement_arrays(settings, df, msyms)
-
-par_map = create_known_parameters_map(settings, syms)
-
-# Create a belt velocity signal v(t)
-v = syms.specifieds[-1]
-traj_map = {
-    v: df['Speed'].values,  # shape(settings['NUM_NODES'],)
-}
-
-instance_constraints = create_instance_constraints(settings, syms, msyms,
-                                                   duration, h)
-bounds = create_bounds(syms)
-
-logger.info('Creating the opty problem.')
-prob = Problem(
-    obj,
-    obj_grad,
-    msyms.eom,
-    syms.states,
-    settings['NUM_NODES'],
-    h,
-    known_parameter_map=par_map,
-    known_trajectory_map=traj_map,
-    instance_constraints=instance_constraints,
-    bounds=bounds,
-    time_symbol=time_symbol,
-    tmp_dir='gait_codegen',  # enables binary caching
-)
-
-# When not tracking markers, the dynamics and cost function are invariant
-# to a constant horizontal translation of the trajectory, so there is no
-# unique solution. We therefore require qax(t=0) = 0
-# (it would be better to use the bounds to require free[0]=zero, but I don't
-# know how to do this in opty, I only see bounds on the whole trajectory)
-if settings['WMAR'] == 0:
-    # instance_constraints += (qax.func(0*h),)
-    prob.lower_bound[0] = 0.0
-    prob.upper_bound[0] = 0.0
-
-if settings['LINEAR_SOLVER'].startswith('ma'):
-    # TODO : Load correct shared lib on Windows/Darwin
-    if platform.system() == 'Linux':
-        prob.add_option('hsllib', 'libcoinhsl.so')
-    prob.add_option('linear_solver', settings['LINEAR_SOLVER'])
-    if settings['LINEAR_SOLVER'] == 'ma57':
-        prob.add_option('ma57_pivot_order', 2)
-
-prob.add_option('max_iter', 3000)
-prob.add_option('tol', 1e-3)
-prob.add_option('constr_viol_tol', 1e-4)
-prob.add_option('print_level', 0)
-#prob.add_option('derivative_test', 'first-order')
-
 if __name__ == "__main__":
 
     print_settings(settings)
+
+    df, duration, h, walking_speed = load_measurement_data(settings)
+    syms, msyms = generate_symbolic_eqs(settings)
+    reg_syms = syms.states + syms.joint_torques
+    ang_meas, mar_meas, grf_meas = extract_flattened_meas_arrays(settings, df,
+                                                              msyms)
+    par_map = create_known_parameters_map(settings, syms)
+    v = syms.specifieds[-1]
+    traj_map = {
+        v: df['Speed'].values,  # shape(settings['NUM_NODES'],)
+    }
+    instance_constraints = create_instance_constraints(settings, syms, msyms,
+                                                       duration, h)
+    bounds = create_bounds(syms)
+
+    logger.info('Creating the opty problem.')
+    prob = Problem(
+        obj,
+        obj_grad,
+        msyms.eom,
+        syms.states,
+        settings['NUM_NODES'],
+        h,
+        known_parameter_map=par_map,
+        known_trajectory_map=traj_map,
+        instance_constraints=instance_constraints,
+        bounds=bounds,
+        time_symbol=time_symbol,
+        tmp_dir='gait_codegen',  # enables binary caching
+    )
+
+    # When not tracking markers, the dynamics and cost function are invariant
+    # to a constant horizontal translation of the trajectory, so there is no
+    # unique solution. We therefore require qax(t=0) = 0 (it would be better to
+    # use the bounds to require free[0]=zero, but I don't know how to do this
+    # in opty, I only see bounds on the whole trajectory)
+    if settings['WMAR'] == 0:
+        # instance_constraints += (qax.func(0*h),)
+        prob.lower_bound[0] = 0.0
+        prob.upper_bound[0] = 0.0
+
+    if settings['LINEAR_SOLVER'].startswith('ma'):
+        # TODO : Load correct shared lib on Windows/Darwin
+        if platform.system() == 'Linux':
+            prob.add_option('hsllib', 'libcoinhsl.so')
+        prob.add_option('linear_solver', settings['LINEAR_SOLVER'])
+        if settings['LINEAR_SOLVER'] == 'ma57':
+            prob.add_option('ma57_pivot_order', 2)
+
+    prob.add_option('max_iter', 3000)
+    prob.add_option('tol', 1e-3)
+    prob.add_option('constr_viol_tol', 1e-4)
+    prob.add_option('print_level', 0)
+    #prob.add_option('derivative_test', 'first-order')
 
     initial_guess = gen_initial_guess_from_standing(settings, syms, msyms)
 
@@ -275,23 +272,8 @@ if __name__ == "__main__":
     plt.show()
 
     if settings['SAVE_RESULT']:
-        result = {
-            'EOM_SCALE': settings['EOM_SCALE'],
-            'GAIT_CYCLE_NUM': settings['GAIT_CYCLE_NUM'],
-            'GENFORCE_SCALE': settings['GENFORCE_SCALE'],
-            'LINEAR_SOLVER': settings['LINEAR_SOLVER'],
-            'MAKE_ANIMATION': settings['MAKE_ANIMATION'],
-            'NUM_NODES': settings['NUM_NODES'],
-            'SAVE_RESULT': settings['SAVE_RESULT'],
-            'SEED': settings['SEED'],
-            'STIFFNESS_EXP': settings['STIFFNESS_EXP'],
-            'SUBJECT_MASS': settings['SUBJECT_MASS'],
-            'USE_WINTER_DATA': settings['USE_WINTER_DATA'],
-            'WANG': settings['WANG'],
-            'WGRF': settings['WGRF'],
-            'WMAR': settings['WMAR'],
-            'WREG': settings['WREG'],
-            'WTOR': settings['WTOR'],
+        result = settings.copy()
+        result.update({
             'ang_sol_full': ang_sol_full,
             'tor_sol_full': tor_sol_full,
             'grf_sol_full': grf_sol_full,
@@ -299,7 +281,7 @@ if __name__ == "__main__":
             'h': h,
             'duration': duration,
             'walking_speed': walking_speed,
-        }
+        })
         with open('result.pkl', 'wb') as f:
             # TODO : Generate a unique filename based on the settings.
             pickle.dump(result, f)
