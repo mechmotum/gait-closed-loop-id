@@ -121,6 +121,38 @@ TOR_PLOT_COLS = [
 ]
 
 
+def print_settings(s):
+    """Prints a formatted table of the settings.
+
+    Parameters
+    ==========
+    s : dictionary
+        A dictionary that containing all the settings.
+
+    """
+    print('*'*79)
+    print("Settings")
+    print('*'*79)
+    print('Data source: {}'.format(
+        'Winter' if s['USE_WINTER_DATA'] else
+        'Trial 20, Gait Cycle {}'.format(s['GAIT_CYCLE_NUM'])))
+    print("Number of nodes: {}".format(s['NUM_NODES']))
+    print('Random seed: {}'.format(int(s['SEED'])))
+    print('Scaling: EoM {}, Generalized Force {}'.format(
+        s['EOM_SCALE'], s['GENFORCE_SCALE']))
+    print(
+    """Objective weights:
+        Joint Angles {}
+        Ground Reaction Forces {}
+        Markers {}
+        Regularization {}
+        Joint Torques {}""".format(s['WANG'], s['WGRF'], s['WMAR'], s['WREG'],
+                                   s['WTOR'])
+    )
+    print('IPOPT linear solver: {}'.format(s['LINEAR_SOLVER']))
+    print('*'*79)
+
+
 def full_gait_from_half(*halves):
     """Returns a full right side gait cycle constructed from a right & left
     half gait cycle.
@@ -1158,6 +1190,33 @@ def load_sample_data(num_nodes, first_cycle=0, last_cycle=None,
     res_df = pd.concat((time_df, interp_df), axis=1)
 
     return res_df
+
+
+def load_measurement_data(s):
+    """Load half cycle [0%, 50%] measurement data from Moore et al. 2015 (trial
+    20) or normative Winter's data (unless tracking markers is requested).
+
+    Returns
+    =======
+    df : DataFrame
+    duration : float
+    h : float
+    walking_speed : float
+
+    """
+    if s['USE_WINTER_DATA']:
+        if s['WMAR'] != 0:
+            raise ValueError("Winter's data does not have markers to track.")
+        df = load_winter_data_frame(num_nodes=s['NUM_NODES'], half_cycle=True)
+    else:
+        df = load_sample_data(s['NUM_NODES'], first_cycle=s['GAIT_CYCLE_NUM'],
+                              half_cycle=True)
+
+    duration = df['Time'].values[-1]  # time @ 50%
+    h = duration/(s['NUM_NODES'] - 1)  # fixed time step in the simulation
+    walking_speed = df['Speed'].mean()
+
+    return df, duration, h, walking_speed
 
 
 def plot_joint_comparison(t, angles, torques, angles_meas, torques_meas=None,

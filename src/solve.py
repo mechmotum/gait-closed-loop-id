@@ -40,10 +40,10 @@ from utils import (
     full_gait_from_half,
     generate_grf_equations,
     generate_marker_equations,
-    load_sample_data,
-    load_winter_data_frame,
+    load_measurement_data,
     plot_joint_comparison,
     plot_marker_comparison,
+    print_settings,
     tile_standing,
 )
 
@@ -75,58 +75,6 @@ settings = {
     "WREG": 1e-6,  # weight of mean squared time derivatives
     "WTOR": 1000.0,  # weight of the mean squared torque (in kNm) objective
 }
-
-
-def print_settings(s):
-    print('*'*79)
-    print("Settings")
-    print('*'*79)
-    print('Data source: {}'.format(
-        'Winter' if s['USE_WINTER_DATA'] else
-        'Trial 20, Gait Cycle {}'.format(s['GAIT_CYCLE_NUM'])))
-    print("Number of nodes: {}".format(s['NUM_NODES']))
-    print('Random seed: {}'.format(int(s['SEED'])))
-    print('Scaling: EoM {}, Generalized Force {}'.format(
-        s['EOM_SCALE'], s['GENFORCE_SCALE']))
-    print(
-    """Objective weights:
-        Joint Angles {}
-        Ground Reaction Forces {}
-        Markers {}
-        Regularization {}
-        Joint Torques {}""".format(s['WANG'], s['WGRF'], s['WMAR'], s['WREG'],
-                                   s['WTOR'])
-    )
-    print('IPOPT linear solver: {}'.format(s['LINEAR_SOLVER']))
-    print('*'*79)
-
-
-def load_data(s):
-    """
-
-    Returns
-    =======
-    df : DataFrame
-    duration : float
-    h : float
-    walking_speed : float
-
-    """
-    # Load half cycle [0%, 50%] measurement data from Moore et al. 2015 (trial
-    # 20) or normative Winter's data (unless tracking markers is requested).
-
-    if s['USE_WINTER_DATA']:
-        if s['WMAR'] != 0:
-            raise ValueError("Winter's data does not have markers to track.")
-        df = load_winter_data_frame(num_nodes=s['NUM_NODES'], half_cycle=True)
-    else:
-        df = load_sample_data(s['NUM_NODES'], first_cycle=s['GAIT_CYCLE_NUM'],
-                              half_cycle=True)
-    duration = df['Time'].values[-1]  # time @ 50%
-    h = duration/(s['NUM_NODES'] - 1)  # fixed time step in the simulation
-    walking_speed = df['Speed'].mean()
-
-    return df, duration, h, walking_speed
 
 
 def generate_symbolic_eqs(s):
@@ -457,7 +405,7 @@ def obj_grad(prob, free):
     return grad
 
 
-df, duration, h, walking_speed = load_data(settings)
+df, duration, h, walking_speed = load_measurement_data(settings)
 syms, msyms = generate_symbolic_eqs(settings)
 ang_meas, mar_meas, grf_meas = extract_measurements(settings, msyms)
 
