@@ -131,6 +131,7 @@ def load_data(s):
 
 df, duration, h, walking_speed = load_data(settings)
 
+
 def generate_symbolic_eqs(s):
     # Derive the equations of motion
     logger.info('Deriving the equations of motion.')
@@ -181,14 +182,25 @@ def generate_symbolic_eqs(s):
 
 syms, msyms = generate_symbolic_eqs(settings)
 
-# Extract angle measurement data [0%, 50%) and flatten
-ang_meas = df[ANG_GAIT2D_COLS].values[:-1, :].transpose().flatten()
 
-if settings['WMAR'] != 0:
-    mar_meas = df[msyms.marker_labels].values[:-1, :].T.flatten()
+def extract_measurements(s, msyms):
+    # Extract angle measurement data [0%, 50%) and flatten
+    ang_meas = df[ANG_GAIT2D_COLS].values[:-1, :].transpose().flatten()
 
-if settings['WGRF'] != 0:
-    grf_meas = df[msyms.grf_labels].values[:-1, :].T.flatten()
+    if settings['WMAR'] != 0:
+        mar_meas = df[msyms.marker_labels].values[:-1, :].T.flatten()
+    else:
+        mar_meas = None
+
+    if settings['WGRF'] != 0:
+        grf_meas = df[msyms.grf_labels].values[:-1, :].T.flatten()
+    else:
+        grf_meas = None
+
+    return ang_meas, mar_meas, grf_meas
+
+
+ang_meas, mar_meas, grf_meas = extract_measurements(settings, msyms)
 
 # The generalized coordinates are the hip lateral position qax and veritcal
 # position qay, the trunk angle with respect to vertical qa and the relative
@@ -229,7 +241,19 @@ def create_known_parameters_map(s, syms):
     return par_map
 
 
-def create_bounds():
+def create_bounds(syms):
+    # The generalized coordinates are the hip lateral position qax and veritcal
+    # position qay, the trunk angle with respect to vertical qa and the
+    # relative joint angles:
+    #
+    # - right: hip (b), knee (c), ankle (d)
+    # - left: hip (e), knee (f), ankle (g)
+    #
+    # Each joint has a joint torque acting between the adjacent bodies.
+    qax, qay, qa, qb, qc, qd, qe, qf, qg = syms.coordinates
+    uax, uay, ua, ub, uc, ud, ue, uf, ug = syms.speeds
+    Tb, Tc, Td, Te, Tf, Tg, v = syms.specifieds
+
     # Bound all the states to human realizable ranges.
     #
     # - The trunk should stay generally upright and be at a possible walking
@@ -264,7 +288,19 @@ def create_bounds():
     return bounds
 
 
-def create_instance_constraints(s):
+def create_instance_constraints(s, syms, msyms, duration):
+    # The generalized coordinates are the hip lateral position qax and veritcal
+    # position qay, the trunk angle with respect to vertical qa and the
+    # relative joint angles:
+    #
+    # - right: hip (b), knee (c), ankle (d)
+    # - left: hip (e), knee (f), ankle (g)
+    #
+    # Each joint has a joint torque acting between the adjacent bodies.
+    qax, qay, qa, qb, qc, qd, qe, qf, qg = syms.coordinates
+    uax, uay, ua, ub, uc, ud, ue, uf, ug = syms.speeds
+    Tb, Tc, Td, Te, Tf, Tg, v = syms.specifieds
+
     # To enforce a half period, set the right leg's angles at the initial time
     # to be equal to the left leg's angles at the final time and vice versa.
     # The same goes for the joint angular rates.
@@ -450,6 +486,9 @@ traj_map = {
     v: df['Speed'].values,  # shape(settings['NUM_NODES'],)
 }
 
+instance_constraints = create_instance_constraints(settings, syms, msyms,
+                                                   duration)
+
 logger.info('Creating the opty problem.')
 prob = Problem(
     obj,
@@ -460,8 +499,8 @@ prob = Problem(
     h,
     known_parameter_map=par_map,
     known_trajectory_map=traj_map,
-    instance_constraints=create_instance_constraints(settings),
-    bounds=create_bounds(),
+    instance_constraints=instance_constraints,
+    bounds=create_bounds(syms),
     time_symbol=time_symbol,
     tmp_dir='gait_codegen',  # enables binary caching
 )
