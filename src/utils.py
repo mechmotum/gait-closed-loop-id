@@ -393,12 +393,20 @@ def setup_opty_problem(settings, obj, obj_grad, syms, msyms, h, par_map,
         prob.lower_bound[0] = 0.0
         prob.upper_bound[0] = 0.0
 
-    set_linear_solver(settings, prob)
+    if settings['LINEAR_SOLVER'].startswith('ma'):
+        # TODO : Load correct shared lib on Windows/Darwin
+        if platform.system() == 'Linux':
+            prob.add_option('hsllib', 'libcoinhsl.so')
+        prob.add_option('linear_solver', settings['LINEAR_SOLVER'])
+        if settings['LINEAR_SOLVER'] == 'ma57':
+            prob.add_option('ma57_pivot_order', 2)
+
     prob.add_option('max_iter', 3000)
     prob.add_option('tol', 1e-3)
     prob.add_option('constr_viol_tol', 1e-4)
     prob.add_option('print_level', 0)
     #prob.add_option('derivative_test', 'first-order')
+
     return prob
 
 
@@ -418,18 +426,6 @@ def save_result(settings, ang_sol_full, tor_sol_full, grf_sol_full, solution,
     with open('result.pkl', 'wb') as f:
         # TODO : Generate a unique filename based on the settings.
         pickle.dump(result, f)
-
-
-def set_linear_solver(settings, prob):
-    """Sets the linear solver option on Problem to the HSL solver given the
-    operating system."""
-    if settings['LINEAR_SOLVER'].startswith('ma'):
-        # TODO : Load correct shared lib on Windows/Darwin
-        if platform.system() == 'Linux':
-            prob.add_option('hsllib', 'libcoinhsl.so')
-        prob.add_option('linear_solver', settings['LINEAR_SOLVER'])
-        if settings['LINEAR_SOLVER'] == 'ma57':
-            prob.add_option('ma57_pivot_order', 2)
 
 
 def solve_gait(prob, v, speeds, initial_guess):

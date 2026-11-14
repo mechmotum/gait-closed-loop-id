@@ -59,7 +59,7 @@ if __name__ == "__main__":
 
     print_settings(settings)
 
-    # Generate
+    # 1. Generate all input data for the opty problem.
     df, duration, h, walking_speed = load_measurement_data(settings)
     syms, msyms = generate_symbolic_eqs(settings)
     reg_syms = syms.states + syms.joint_torques
@@ -74,10 +74,12 @@ if __name__ == "__main__":
                                                        duration, h)
     bounds = create_bounds(syms)
 
+    # 2. Generate the opty problem.
     prob = setup_opty_problem(settings, obj, obj_grad, syms, msyms, h, par_map,
                               traj_map, instance_constraints, bounds,
                               time_symbol, ang_meas_f, mar_meas_f, grf_meas_f)
 
+    # 3. Solve the problem.
     initial_guess = gen_initial_guess_from_standing(settings, syms, msyms)
 
     # solve for a series of increasing speeds, ending at the required speed
@@ -86,11 +88,12 @@ if __name__ == "__main__":
         solution = solve_gait(prob, v, speeds, initial_guess)
         initial_guess = solution  # use as guess for the next problem
 
+    # 4. Display and record the results.
+    # TODO : This function has too many inputs and outputs.
     (ang_meas, tor_meas, grf_meas, plot_time, ang_sol_full, tor_sol_full,
      grf_sol_full, ang_meas_full, tor_meas_full, grf_meas_full) = \
         build_full_gait_cycles(settings, syms, prob, solution, df, duration, h)
 
-    # Generate plots and animations
     plot_joint_comparison(plot_time, ang_sol_full, tor_sol_full, ang_meas_full,
                         torques_meas=tor_meas_full, grf=grf_sol_full,
                         grf_meas=grf_meas_full)
