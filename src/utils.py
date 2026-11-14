@@ -139,6 +139,8 @@ TOR_PLOT_COLS = [
 
 @dataclass
 class ModifiedSymbolics:
+    """Holds information extracted from the Gait2D model and prepared for the
+    opty problem."""
     eom = None
     grf_eqs = None
     grf_labels = None
@@ -146,6 +148,7 @@ class ModifiedSymbolics:
     marker_eqs = None
     marker_labels = None
     marker_syms = None
+    reg_syms = None
 
 
 @dataclass
@@ -154,7 +157,6 @@ class ObjectiveData:
     available otherwise."""
     settings: dict = None
     syms: Symbolics = None
-    reg_syms: list = None
     msyms: ModifiedSymbolics = None
     ang_meas_f: np.ndarray = None  # flattened version
     mar_meas_f: np.ndarray = None  # flattened version
@@ -251,7 +253,7 @@ def obj(prob, free, obj_show=False):
 
     # smooth all regularization trajectories
     if WREG != 0:
-        diff = extract_values_diff(prob, free, *prob.data.reg_syms)
+        diff = extract_values_diff(prob, free, *prob.data.msyms.reg_syms)
         f_reg = prob.data.settings['WREG']*np.sum(diff**2)/h**2/len(diff)
         f_tot += f_reg
 
@@ -327,12 +329,12 @@ def obj_grad(prob, free):
     if WREG != 0:
         # NOTE : The regularization should be added on top of the tor_vals and
         # ang_vals.
-        diff = extract_values_diff(prob, free, *prob.data.reg_syms)
+        diff = extract_values_diff(prob, free, *prob.data.msyms.reg_syms)
         reg_grad = WREG*2.0*diff/h**2/len(diff)
         # NOTE : Add twice with a shift for correct gradient.
-        fill_free(prob, grad, -reg_grad, *prob.data.reg_syms,
+        fill_free(prob, grad, -reg_grad, *prob.data.msyms.reg_syms,
                   slice=(None, -1), add=True)
-        fill_free(prob, grad, reg_grad, *prob.data.reg_syms,
+        fill_free(prob, grad, reg_grad, *prob.data.msyms.reg_syms,
                   slice=(1, None), add=True)
 
     if WMAR != 0:
@@ -376,7 +378,6 @@ def setup_opty_problem(settings, obj, obj_grad, syms, msyms, h, par_map,
     prob.data = ObjectiveData(
         settings=settings,
         syms=syms,
-        reg_syms=syms.states + syms.joint_torques,
         msyms=msyms,
         ang_meas_f=ang_meas_f,
         mar_meas_f=mar_meas_f,
@@ -1202,6 +1203,7 @@ def generate_symbolic_eqs(s):
 
 
     msyms = ModifiedSymbolics()
+    msyms.reg_syms = syms.states + syms.joint_torques
 
     # Markers are in units meters, so no scaling applied
     if s['WMAR'] != 0:

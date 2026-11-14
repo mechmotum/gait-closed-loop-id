@@ -62,7 +62,6 @@ if __name__ == "__main__":
     # 1. Generate all input data for the opty problem.
     df, duration, h, walking_speed = load_measurement_data(settings)
     syms, msyms = generate_symbolic_eqs(settings)
-    reg_syms = syms.states + syms.joint_torques
     ang_meas_f, mar_meas_f, grf_meas_f = extract_flattened_meas_arrays(
         settings, df, msyms)
     par_map = create_known_parameters_map(settings, syms)
