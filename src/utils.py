@@ -15,6 +15,7 @@ from scipy.interpolate import interp1d
 from pygait2d import simulate
 from pygait2d.derive import derive_equations_of_motion, Symbolics
 from pygait2d.segment import time_varying
+from opty import Problem
 from symmeplot.matplotlib import Scene3D
 from matplotlib.animation import FuncAnimation
 
@@ -190,6 +191,215 @@ def print_settings(s):
     )
     print('IPOPT linear solver: {}'.format(s['LINEAR_SOLVER']))
     print('*'*79)
+
+
+def obj(prob, free, obj_show=False):
+    """Returns the objective scalar value given the values of the free
+    optimization variables.
+
+    Objective function::
+
+        J = WTOR*mean(joint_torque**2)
+          + WANG*mean(joint_angle_error**2)
+          + WREG*mean((dx/dt)**2)
+          + WMAR*mean(marker_error**2)
+          + WGRF*mean(grf_error**2)
+
+    The final node is excluded from all means. Due to symmetry and periodicity
+    constraints, it is the mirror image of the first node, and we don't want to
+    include it twice.
+
+    Parameters
+    ==========
+    prob : opty.Problem
+        Instantiated optimal control problem.
+    free : ndarray, shape(num_free,)
+        Values of the free optimization variables.
+    obj_show : boolean, optional
+        If true, the objective components will be printed.
+
+    Returns
+    =======
+    f_tot : float
+        Scalar objective value.
+
+    """
+    WTOR = prob.data.settings['WTOR']
+    WANG = prob.data.settings['WANG']
+    WREG = prob.data.settings['WREG']
+    WMAR = prob.data.settings['WMAR']
+    WGRF = prob.data.settings['WGRF']
+
+    h = prob.collocator.node_time_interval
+
+    # NOTE : slice(0, -1) is used to avoid double counting the periodic
+    # duplicate values
+
+    # minimize mean joint torque
+    tor_vals = extract_values(prob, free, *prob.data.syms.joint_torques,
+                              slice=(0, -1))
+    f_tor = 1e-6*WTOR*np.sum(tor_vals**2)/len(tor_vals)
+
+    f_tot = f_tor
+
+    # minimize mean angle tracking error
+    if WANG != 0:
+        ang_vals = extract_values(prob, free, *prob.data.syms.joint_angles,
+                                  slice=(0, -1))
+        f_ang = WANG*np.sum((ang_vals - prob.data.ang_meas_f)**2)/len(ang_vals)
+        f_tot += f_ang
+
+    # smooth all regularization trajectories
+    if WREG != 0:
+        diff = extract_values_diff(prob, free, *prob.data.reg_syms)
+        f_reg = prob.data.settings['WREG']*np.sum(diff**2)/h**2/len(diff)
+        f_tot += f_reg
+
+    # minimize mean marker tracking error
+    if WMAR != 0:
+        # vals -> shape(num_markers*(num_nodes - 1), 1)
+        mar_vals = extract_values(prob, free, *prob.data.msyms.marker_syms,
+                                  slice=(0, -1))
+        f_mar = WMAR*np.sum((mar_vals - prob.data.mar_meas_f)**2)/len(mar_vals)
+        f_tot += f_mar
+
+    # minimize mean ground reaction force tracking error
+    if WGRF != 0:
+        grf_vals = extract_values(prob, free, *prob.data.msyms.grf_syms,
+                                  slice=(0, -1))
+        f_grf = WGRF*np.sum((grf_vals - prob.data.grf_meas_f)**2)/len(grf_vals)
+        f_tot += f_grf
+
+    if obj_show:
+        msg = (f"   obj: {f_tot:.3f} = {f_tor:.3f}(torque)")
+        if WREG != 0:
+            msg += f" + {f_reg:.3f}(reg)"
+        if WANG != 0:
+            msg += f" + {f_ang:.3f}(angle)"
+        if WMAR != 0:
+            msg += f" + {f_mar:.3f}(marker)"
+        if WGRF != 0:
+            msg += f" + {f_grf:.3f}(grf)"
+        print(msg)
+
+    return f_tot
+
+
+def obj_grad(prob, free):
+    """Returns the gradient of the objective function with respect to the free
+    optimization variables.
+
+    Parameters
+    ==========
+    prob : opty.Problem
+        Instantiated optimal control problem.
+    free : ndarray, shape(num_free,)
+        Values of the free optimization variables.
+
+    Returns
+    =======
+    grad : ndarray, shape(free,)
+        Gradient of the objective.
+
+    """
+    WTOR = prob.data.settings['WTOR']
+    WANG = prob.data.settings['WANG']
+    WREG = prob.data.settings['WREG']
+    WMAR = prob.data.settings['WMAR']
+    WGRF = prob.data.settings['WGRF']
+
+    h = prob.collocator.node_time_interval
+
+    grad = np.zeros_like(free)
+
+    tor_vals = extract_values(prob, free, *prob.data.syms.joint_torques,
+                              slice=(0, -1))
+    fill_free(prob, grad, 2e-6*WTOR*tor_vals/len(tor_vals),
+              *prob.data.syms.joint_torques, slice=(0, -1))
+
+    if WANG != 0:
+        ang_vals = extract_values(prob, free, *prob.data.syms.joint_angles,
+                                  slice=(0, -1))
+        fill_free(prob, grad,
+                  2.0*WANG*(ang_vals - prob.data.ang_meas_f)/len(ang_vals),
+                  *prob.data.syms.joint_angles, slice=(0, -1))
+
+    if WREG != 0:
+        # NOTE : The regularization should be added on top of the tor_vals and
+        # ang_vals.
+        diff = extract_values_diff(prob, free, *prob.data.reg_syms)
+        reg_grad = WREG*2.0*diff/h**2/len(diff)
+        # NOTE : Add twice with a shift for correct gradient.
+        fill_free(prob, grad, -reg_grad, *prob.data.reg_syms,
+                  slice=(None, -1), add=True)
+        fill_free(prob, grad, reg_grad, *prob.data.reg_syms,
+                  slice=(1, None), add=True)
+
+    if WMAR != 0:
+        mar_vals = extract_values(prob, free, *prob.data.msyms.marker_syms,
+                                  slice=(0, -1))
+        fill_free(prob, grad,
+                  2.0*WMAR*(mar_vals - prob.data.mar_meas_f)/len(mar_vals),
+                  *prob.data.msyms.marker_syms, slice=(0, -1))
+
+    if WGRF != 0:
+        grf_vals = extract_values(prob, free, *prob.data.msyms.grf_syms,
+                                  slice=(0, -1))
+        fill_free(prob, grad,
+                  2.0*WGRF*(grf_vals - prob.data.grf_meas_f)/len(grf_vals),
+                  *prob.data.msyms.grf_syms, slice=(0, -1))
+
+    return grad
+
+
+def setup_opty_problem(settings, obj, obj_grad, syms, msyms, h, par_map,
+                       traj_map, instance_constraints, bounds, time_symbol,
+                       ang_meas_f, mar_meas_f, grf_meas_f):
+    logger.info('Creating the opty problem.')
+    prob = Problem(
+        obj,
+        obj_grad,
+        msyms.eom,
+        syms.states,
+        settings['NUM_NODES'],
+        h,
+        known_parameter_map=par_map,
+        known_trajectory_map=traj_map,
+        instance_constraints=instance_constraints,
+        bounds=bounds,
+        time_symbol=time_symbol,
+        tmp_dir='gait_codegen',  # enables binary caching
+    )
+
+    # Attach extra data to the problem so it can be used inside the objective
+    # and gradient functions.
+    prob.data = ObjectiveData(
+        settings=settings,
+        syms=syms,
+        reg_syms=syms.states + syms.joint_torques,
+        msyms=msyms,
+        ang_meas_f=ang_meas_f,
+        mar_meas_f=mar_meas_f,
+        grf_meas_f=grf_meas_f,
+    )
+
+    # When not tracking markers, the dynamics and cost function are invariant
+    # to a constant horizontal translation of the trajectory, so there is no
+    # unique solution. We therefore require qax(t=0) = 0 (it would be better to
+    # use the bounds to require free[0]=zero, but I don't know how to do this
+    # in opty, I only see bounds on the whole trajectory)
+    if settings['WMAR'] == 0:
+        # instance_constraints += (qax.func(0*h),)
+        prob.lower_bound[0] = 0.0
+        prob.upper_bound[0] = 0.0
+
+    set_linear_solver(settings, prob)
+    prob.add_option('max_iter', 3000)
+    prob.add_option('tol', 1e-3)
+    prob.add_option('constr_viol_tol', 1e-4)
+    prob.add_option('print_level', 0)
+    #prob.add_option('derivative_test', 'first-order')
+    return prob
 
 
 def save_result(settings, ang_sol_full, tor_sol_full, grf_sol_full, solution,
