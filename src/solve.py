@@ -33,6 +33,7 @@ from utils import (
     save_result,
     set_linear_solver,
     solve_gait,
+    ObjectiveData,
 )
 
 # Primary settings (capitalize)
@@ -89,50 +90,59 @@ def obj(prob, free, obj_show=False):
         Scalar objective value.
 
     """
+    WTOR = prob.data.settings['WTOR']
+    WANG = prob.data.settings['WANG']
+    WREG = prob.data.settings['WREG']
+    WMAR = prob.data.settings['WMAR']
+    WGRF = prob.data.settings['WGRF']
+
     # NOTE : slice(0, -1) is used to avoid double counting the periodic
     # duplicate values
 
     # minimize mean joint torque
-    tor_vals = extract_values(prob, free, *syms.joint_torques, slice=(0, -1))
-    f_tor = 1e-6*settings['WTOR']*np.sum(tor_vals**2)/len(tor_vals)
+    tor_vals = extract_values(prob, free, *prob.data.syms.joint_torques,
+                              slice=(0, -1))
+    f_tor = 1e-6*WTOR*np.sum(tor_vals**2)/len(tor_vals)
 
     f_tot = f_tor
 
     # minimize mean angle tracking error
-    if settings['WANG'] != 0:
-        ang_vals = extract_values(prob, free, *syms.joint_angles,
+    if WANG != 0:
+        ang_vals = extract_values(prob, free, *prob.data.syms.joint_angles,
                                   slice=(0, -1))
-        f_ang = settings['WANG']*np.sum((ang_vals - ang_meas)**2)/len(ang_vals)
+        f_ang = WANG*np.sum((ang_vals - prob.data.ang_meas_f)**2)/len(ang_vals)
         f_tot += f_ang
 
     # smooth all regularization trajectories
-    if settings['WREG'] != 0:
-        diff = extract_values_diff(prob, free, *reg_syms)
-        f_reg = settings['WREG']*np.sum(diff**2)/h**2/len(diff)
+    if WREG != 0:
+        diff = extract_values_diff(prob, free, *prob.data.reg_syms)
+        f_reg = prob.data.settings['WREG']*np.sum(diff**2)/h**2/len(diff)
         f_tot += f_reg
 
     # minimize mean marker tracking error
-    if settings['WMAR'] != 0:
+    if WMAR != 0:
         # vals -> shape(num_markers*(num_nodes - 1), 1)
-        mar_vals = extract_values(prob, free, *msyms.marker_syms, slice=(0, -1))
-        f_mar = settings['WMAR']*np.sum((mar_vals - mar_meas)**2)/len(mar_vals)
+        mar_vals = extract_values(prob, free, *prob.data.msyms.marker_syms,
+                                  slice=(0, -1))
+        f_mar = WMAR*np.sum((mar_vals - prob.data.mar_meas_f)**2)/len(mar_vals)
         f_tot += f_mar
 
     # minimize mean ground reaction force tracking error
-    if settings['WGRF'] != 0:
-        grf_vals = extract_values(prob, free, *msyms.grf_syms, slice=(0, -1))
-        f_grf = settings['WGRF']*np.sum((grf_vals - grf_meas)**2)/len(grf_vals)
+    if WGRF != 0:
+        grf_vals = extract_values(prob, free, *prob.data.msyms.grf_syms,
+                                  slice=(0, -1))
+        f_grf = WGRF*np.sum((grf_vals - prob.data.grf_meas_f)**2)/len(grf_vals)
         f_tot += f_grf
 
     if obj_show:
         msg = (f"   obj: {f_tot:.3f} = {f_tor:.3f}(torque)")
-        if settings['WREG'] != 0:
+        if WREG != 0:
             msg += f" + {f_reg:.3f}(reg)"
-        if settings['WANG'] != 0:
+        if WANG != 0:
             msg += f" + {f_ang:.3f}(angle)"
-        if settings['WMAR'] != 0:
+        if WMAR != 0:
             msg += f" + {f_mar:.3f}(marker)"
-        if settings['WGRF'] != 0:
+        if WGRF != 0:
             msg += f" + {f_grf:.3f}(grf)"
         print(msg)
 
@@ -156,39 +166,50 @@ def obj_grad(prob, free):
         Gradient of the objective.
 
     """
+    WTOR = prob.data.settings['WTOR']
+    WANG = prob.data.settings['WANG']
+    WREG = prob.data.settings['WREG']
+    WMAR = prob.data.settings['WMAR']
+    WGRF = prob.data.settings['WGRF']
+
     grad = np.zeros_like(free)
 
-    tor_vals = extract_values(prob, free, *syms.joint_torques, slice=(0, -1))
-    fill_free(prob, grad, 2e-6*settings['WTOR']*tor_vals/len(tor_vals),
+    tor_vals = extract_values(prob, free, *prob.data.syms.joint_torques,
+                              slice=(0, -1))
+    fill_free(prob, grad, 2e-6*WTOR*tor_vals/len(tor_vals),
               *syms.joint_torques, slice=(0, -1))
 
-    if settings['WANG'] != 0:
-        ang_vals = extract_values(prob, free, *syms.joint_angles,
+    if WANG != 0:
+        ang_vals = extract_values(prob, free, *prob.data.syms.joint_angles,
                                   slice=(0, -1))
         fill_free(prob, grad,
-                  2.0*settings['WANG']*(ang_vals - ang_meas)/len(ang_vals),
-                  *syms.joint_angles, slice=(0, -1))
-    if settings['WREG'] != 0:
+                  2.0*WANG*(ang_vals - prob.data.ang_meas_f)/len(ang_vals),
+                  *prob.data.syms.joint_angles, slice=(0, -1))
+
+    if WREG != 0:
         # NOTE : The regularization should be added on top of the tor_vals and
         # ang_vals.
-        diff = extract_values_diff(prob, free, *reg_syms)
-        reg_grad = settings['WREG']*2.0*diff/h**2/len(diff)
+        diff = extract_values_diff(prob, free, *prob.data.reg_syms)
+        reg_grad = WREG*2.0*diff/h**2/len(diff)
         # NOTE : Add twice with a shift for correct gradient.
-        fill_free(prob, grad, -reg_grad, *reg_syms, slice=(None, -1), add=True)
-        fill_free(prob, grad, reg_grad, *reg_syms, slice=(1, None), add=True)
+        fill_free(prob, grad, -reg_grad, *prob.data.reg_syms,
+                  slice=(None, -1), add=True)
+        fill_free(prob, grad, reg_grad, *prob.data.reg_syms,
+                  slice=(1, None), add=True)
 
-    if settings['WMAR'] != 0:
-        mar_vals = extract_values(prob, free, *msyms.marker_syms,
+    if WMAR != 0:
+        mar_vals = extract_values(prob, free, *prob.data.msyms.marker_syms,
                                   slice=(0, -1))
         fill_free(prob, grad,
-                  2.0*settings['WMAR']*(mar_vals - mar_meas)/len(mar_vals),
-                  *msyms.marker_syms, slice=(0, -1))
+                  2.0*WMAR*(mar_vals - prob.data.mar_meas_f)/len(mar_vals),
+                  *prob.data.msyms.marker_syms, slice=(0, -1))
 
-    if settings['WGRF'] != 0:
-        grf_vals = extract_values(prob, free, *msyms.grf_syms, slice=(0, -1))
+    if WGRF != 0:
+        grf_vals = extract_values(prob, free, *prob.data.msyms.grf_syms,
+                                  slice=(0, -1))
         fill_free(prob, grad,
-                  2.0*settings['WGRF']*(grf_vals - grf_meas)/len(grf_vals),
-                  *msyms.grf_syms, slice=(0, -1))
+                  2.0*WGRF*(grf_vals - prob.data.grf_meas_f)/len(grf_vals),
+                  *prob.data.msyms.grf_syms, slice=(0, -1))
 
     return grad
 
@@ -209,6 +230,18 @@ def setup_opty_problem(settings, obj, obj_grad, syms, msyms, h, par_map,
         bounds=bounds,
         time_symbol=time_symbol,
         tmp_dir='gait_codegen',  # enables binary caching
+    )
+
+    # Attach extra data to the problem so it can be used inside the objective
+    # and gradient functions.
+    prob.data = ObjectiveData(
+        settings=settings,
+        syms=syms,
+        reg_syms=syms.states + syms.joint_torques,
+        msyms=msyms,
+        ang_meas_f=ang_meas_f,
+        mar_meas_f=mar_meas_f,
+        grf_meas_f=grf_meas_f,
     )
 
     # When not tracking markers, the dynamics and cost function are invariant
@@ -234,10 +267,11 @@ if __name__ == "__main__":
 
     print_settings(settings)
 
+    # Generate
     df, duration, h, walking_speed = load_measurement_data(settings)
     syms, msyms = generate_symbolic_eqs(settings)
     reg_syms = syms.states + syms.joint_torques
-    ang_meas, mar_meas, grf_meas = extract_flattened_meas_arrays(
+    ang_meas_f, mar_meas_f, grf_meas_f = extract_flattened_meas_arrays(
         settings, df, msyms)
     par_map = create_known_parameters_map(settings, syms)
     v = syms.specifieds[-1]

@@ -13,7 +13,7 @@ import sympy as sm
 import matplotlib.pyplot as plt
 from scipy.interpolate import interp1d
 from pygait2d import simulate
-from pygait2d.derive import derive_equations_of_motion
+from pygait2d.derive import derive_equations_of_motion, Symbolics
 from pygait2d.segment import time_varying
 from symmeplot.matplotlib import Scene3D
 from matplotlib.animation import FuncAnimation
@@ -136,6 +136,30 @@ TOR_PLOT_COLS = [
 ]
 
 
+@dataclass
+class ModifiedSymbolics:
+    eom = None
+    grf_eqs = None
+    grf_labels = None
+    grf_syms = None
+    marker_eqs = None
+    marker_labels = None
+    marker_syms = None
+
+
+@dataclass
+class ObjectiveData:
+    """Holds data needed inside the objective and its gradient which is not
+    available otherwise."""
+    settings: dict = None
+    syms: Symbolics = None
+    reg_syms: list = None
+    msyms: ModifiedSymbolics = None
+    ang_meas_f: np.ndarray = None  # flattened version
+    mar_meas_f: np.ndarray = None  # flattened version
+    grf_meas_f: np.ndarray = None  # flattened version
+
+
 def print_settings(s):
     """Prints a formatted table of the settings.
 
@@ -231,6 +255,7 @@ def solve_gait(prob, v, speeds, initial_guess):
     prob.obj(prob, solution, obj_show=True)
 
     return solution
+
 
 def create_bounds(syms):
     """Returns bounds for a half gait cycle.
@@ -968,17 +993,6 @@ def generate_symbolic_eqs(s):
     eom = s['EOM_SCALE']*eom
     for i in range(9):
         eom[9+i] = s['GENFORCE_SCALE']*eom[9+i]
-
-
-    @dataclass
-    class ModifiedSymbolics:
-        eom = None
-        grf_eqs = None
-        grf_labels = None
-        grf_syms = None
-        marker_eqs = None
-        marker_labels = None
-        marker_syms = None
 
 
     msyms = ModifiedSymbolics()
