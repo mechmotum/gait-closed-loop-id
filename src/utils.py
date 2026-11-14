@@ -184,14 +184,21 @@ def print_settings(s):
         s['EOM_SCALE'], s['GENFORCE_SCALE']))
     print(
     """Objective weights:
-        Joint Angles {}
-        Ground Reaction Forces {}
-        Markers {}
-        Regularization {}
-        Joint Torques {}""".format(s['WANG'], s['WGRF'], s['WMAR'], s['WREG'],
+    Joint Angles {}
+    Ground Reaction Forces {}
+    Markers {}
+    Regularization {}
+    Joint Torques {}""".format(s['WANG'], s['WGRF'], s['WMAR'], s['WREG'],
                                    s['WTOR'])
     )
-    print('IPOPT linear solver: {}'.format(s['LINEAR_SOLVER']))
+    print(
+    """Ipopt options:
+    Linear solver {IPOPT_LINEAR_SOLVER}
+    Maximum number of iterations {IPOPT_MAX_ITER}
+    Tolerance {IPOPT_TOL}
+    Constraint violoation tolerance {IPOPT_CONSTR_VIOL_TOL}
+    Print level {IPOPT_PRINT_LEVEL}""".format(**s)
+    )
     print('*'*79)
 
 
@@ -394,18 +401,18 @@ def setup_opty_problem(settings, obj, obj_grad, syms, msyms, h, par_map,
         prob.lower_bound[0] = 0.0
         prob.upper_bound[0] = 0.0
 
-    if settings['LINEAR_SOLVER'].startswith('ma'):
+    if settings['IPOPT_LINEAR_SOLVER'].startswith('ma'):
         # TODO : Load correct shared lib on Windows/Darwin
         if platform.system() == 'Linux':
             prob.add_option('hsllib', 'libcoinhsl.so')
-        prob.add_option('linear_solver', settings['LINEAR_SOLVER'])
-        if settings['LINEAR_SOLVER'] == 'ma57':
+        prob.add_option('linear_solver', settings['IPOPT_LINEAR_SOLVER'])
+        if settings['IPOPT_LINEAR_SOLVER'] == 'ma57':
             prob.add_option('ma57_pivot_order', 2)
 
-    prob.add_option('max_iter', 3000)
-    prob.add_option('tol', 1e-3)
-    prob.add_option('constr_viol_tol', 1e-4)
-    prob.add_option('print_level', 0)
+    prob.add_option('max_iter', settings['IPOPT_MAX_ITER'])
+    prob.add_option('tol', settings['IPOPT_TOL'])
+    prob.add_option('constr_viol_tol', settings['IPOPT_CONSTR_VIOL_TOL'])
+    prob.add_option('print_level', settings['IPOPT_PRINT_LEVEL'])
     #prob.add_option('derivative_test', 'first-order')
 
     return prob

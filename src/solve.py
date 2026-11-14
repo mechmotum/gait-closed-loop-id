@@ -38,7 +38,11 @@ settings = {
     "GAIT_CYCLE_NUM": 0,  # gait cycle to select from measurment data
     "GENFORCE_SCALE": 0.001,  # convert to kN and kNm
     # passed to IPOPT: mumps, spral, ma57, ma77, ma86, ma97
-    "LINEAR_SOLVER": 'mumps' if find_library('coinhsl') is None else 'ma57',
+    "IPOPT_LINEAR_SOLVER": 'mumps' if find_library('coinhsl') is None else 'ma57',
+    "IPOPT_MAX_ITER": 3000,
+    "IPOPT_TOL": 1e-3,
+    "IPOPT_CONSTR_VIOL_TOL": 1e-4,
+    "IPOPT_PRINT_LEVEL": 0,
     "MAKE_ANIMATION": True,
     "NUM_NODES": 51,  # number of time nodes for the half period
     "SAVE_RESULT": False,
@@ -57,9 +61,10 @@ settings = {
 
 if __name__ == "__main__":
 
+    # 1. Display all of the settable configuration for generating the solution.
     print_settings(settings)
 
-    # 1. Generate all input data for the opty problem.
+    # 2. Generate all input data for the opty problem.
     df, duration, h, walking_speed = load_measurement_data(settings)
     syms, msyms = generate_symbolic_eqs(settings)
     ang_meas_f, mar_meas_f, grf_meas_f = extract_flattened_meas_arrays(
@@ -73,12 +78,12 @@ if __name__ == "__main__":
                                                        duration, h)
     bounds = create_bounds(syms)
 
-    # 2. Generate the opty problem.
+    # 3. Generate the opty problem.
     prob = setup_opty_problem(settings, obj, obj_grad, syms, msyms, h, par_map,
                               traj_map, instance_constraints, bounds,
                               time_symbol, ang_meas_f, mar_meas_f, grf_meas_f)
 
-    # 3. Solve the problem.
+    # 4. Solve the problem.
     initial_guess = gen_initial_guess_from_standing(settings, syms, msyms)
 
     # solve for a series of increasing speeds, ending at the required speed
@@ -87,7 +92,7 @@ if __name__ == "__main__":
         solution = solve_gait(prob, v, speeds, initial_guess)
         initial_guess = solution  # use as guess for the next problem
 
-    # 4. Display and record the results.
+    # 5. Display and record the results.
     # TODO : This function has too many inputs and outputs.
     (ang_meas, tor_meas, grf_meas, plot_time, ang_sol_full, tor_sol_full,
      grf_sol_full, ang_meas_full, tor_meas_full, grf_meas_full) = \
