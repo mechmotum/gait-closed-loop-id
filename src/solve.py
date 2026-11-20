@@ -35,8 +35,8 @@ from utils import (
 # Primary settings (capitalize)
 settings = {
     "EOM_SCALE": 10.0,  # scaling factor for eom
-    "GAIT_CYCLE_NUM": 0,  # gait cycle to select from measurment data
     "GENFORCE_SCALE": 0.001,  # convert to kN and kNm
+    "GAIT_CYCLE_NUM": 0,  # gait cycle to select from measurment data
     # passed to IPOPT: mumps, spral, ma57, ma77, ma86, ma97
     "IPOPT_LINEAR_SOLVER": 'mumps' if find_library('coinhsl') is None else 'ma57',
     "IPOPT_MAX_ITER": 3000,

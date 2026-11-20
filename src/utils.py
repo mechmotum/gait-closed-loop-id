@@ -31,6 +31,7 @@ logging.basicConfig(
     datefmt='%H:%M:%S',
 )
 
+# TODO : Move these two to the settings dictionary.
 GAITFILE = '020-longitudinal-perturbation-gait-cycles.csv'
 CALIBFILE = '020-calibration-pose.csv'
 DATADIR = os.path.join(os.path.dirname(__file__), '..', 'data')
@@ -699,6 +700,24 @@ def tile_standing(standing_sol, num_nodes, num_angles, num_states):
     tor_traj = np.zeros((num_angles, num_nodes))
     # complete trajectory
     return np.concatenate((state_traj, tor_traj))
+
+
+def match_winter_to_meas(meas_df, wint_df):
+    """Interpolates Winter's normative data at the percent gait cycle in a
+    multi cycle."""
+    meas_percent = meas_df['Percent Gait Cycle'].values
+
+    new_df = pd.DataFrame(
+        interp1d(wint_df['Percent Gait Cycle'], wint_df.values,
+                 axis=0, fill_value='extrapolate')(meas_percent),
+        columns=wint_df.columns,
+        index=np.arange(len(meas_percent))
+    )
+
+    # overwrite time to be monotonic time from the measurements
+    new_df['Time'] = meas_df['Time']
+
+    return new_df
 
 
 def gen_initial_guess_from_standing(s, syms, msyms):
