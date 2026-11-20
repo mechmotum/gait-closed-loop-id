@@ -41,20 +41,20 @@ conf = {
     "IPOPT_CONSTR_VIOL_TOL": 1e-4,
     "IPOPT_LINEAR_SOLVER": ('mumps' if find_library('coinhsl') is None else
                             'ma57'),
-    "IPOPT_MAX_ITER": 3000,
+    "IPOPT_MAX_ITER": 10000,
     "IPOPT_PRINT_LEVEL": 5,
     "IPOPT_TOL": 1e-3,
     "MAKE_ANIMATION": True,
-    "NUM_GAIT_CYCLES": 2,
-    "NUM_NODES": 201,
+    "NUM_GAIT_CYCLES": 4,
+    "NUM_NODES": 401,
     "SAVE_RESULT": False,
-    "SEED": True,  # set to integer value for specific seed value
+    "SEED": False,  # set to integer value for specific seed value
     "STIFFNESS_EXP": 2,  # exponent of the contact stiffness force
     "SUBJECT_MASS": 70.0,  # kg of subject from trial 20
     "USE_WINTER_DATA": False,  # if we want to track Winter's gait data
     # For weights, remove parts of the objective by setting to integer 0.
     "WANG": 1000.0,  # weight of mean squared angle tracking error (in rad)
-    "WGRF": 0,  # weight of mean squared GRF tracking error (in Newtons)
+    "WGRF": 0.0005,  # weight of mean squared GRF tracking error (in Newtons)
     "WMAR": 0,  # weight of mean squared marker tracking error (in meters)
     "WREG": 1e-6,  # weight of mean squared time derivatives
     "WTOR": 1000.0,  # weight of the mean squared torque (in kNm) objective
@@ -105,7 +105,7 @@ else:
 # uay(t), ua(t), ub(t), uc(t), ud(t), ue(t), uf(t), ug(t))
 first_init = np.zeros((3, conf['NUM_NODES']))
 ang_init = init_df[ANG_GAIT2D_COLS].values.transpose()
-rat_init = np.zeros((9, conf['NUM_NODES']))
+rat_init = np.ones((9, conf['NUM_NODES']))
 tor_init = init_df[TOR_GAIT2D_COLS].values.transpose()
 initial_guess = np.concatenate((first_init, ang_init, rat_init, tor_init))
 if conf['WMAR'] != 0:
@@ -119,6 +119,24 @@ if conf['SEED']:
     np.random.seed(conf['SEED'])
 initial_guess = (initial_guess +
                  0.01*np.random.random_sample(len(initial_guess)))
+
+# TODO : Can also just use the measurement data as initial guess:
+#first_init = 0.01*np.ones((3, conf['NUM_NODES']))
+#ang_init = meas_df[ANG_GAIT2D_COLS].values.transpose()
+#rat_init = 0.01*np.ones((9, conf['NUM_NODES']))
+#tor_init = meas_df[TOR_GAIT2D_COLS].values.transpose()
+#initial_guess = np.concatenate((first_init, ang_init, rat_init, tor_init))
+#if conf['WMAR'] != 0:
+    #mar_init = np.zeros((len(msyms.marker_syms), len(meas_df)))
+    #initial_guess = np.concatenate((initial_guess, mar_init))
+#if conf['WGRF'] != 0:
+    #grf_init = meas_df[msyms.grf_labels].values.transpose()
+    #initial_guess = np.concatenate((initial_guess, grf_init))
+#initial_guess = initial_guess.flatten()
+#if conf['SEED']:
+    #np.random.seed(conf['SEED'])
+#initial_guess = (initial_guess +
+                 #0.01*np.random.random_sample(len(initial_guess)))
 
 # TODO : obj & obj_grad avoid double counting period solution, that needs to be
 # removed for this solve.
